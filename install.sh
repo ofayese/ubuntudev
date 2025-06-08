@@ -5,51 +5,96 @@ LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [install.sh] Started at $(date) ==="
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_TYPE=$("$SCRIPT_DIR/env-detect.sh")
 
-IS_HEADLESS=0
-if ! (command -v gnome-shell >/dev/null 2>&1 && echo $XDG_SESSION_TYPE | grep -q 'x11\|wayland'); then
-  IS_HEADLESS=1
-  echo "🕶 Headless environment detected. GUI modules will be skipped."
-fi
-
-SUMMARY_LOG="/var/log/ubuntu-dev-setup-summary.txt"
-echo "Ubuntu Dev Setup Summary - $(date)" > "$SUMMARY_LOG"
-
-
-run_script() {
-  script=$1
-  if [[ "$script" == *"desktop"* && "$IS_HEADLESS" -eq 1 ]]; then
-    echo "[SKIPPED] $script (headless)" | tee -a "$SUMMARY_LOG"
-  else
-    echo "[RUNNING] $script" | tee -a "$SUMMARY_LOG"
-    ./$script
-    echo "[COMPLETED] $script" >> "$SUMMARY_LOG"
-  fi
+show_help() {
+  echo "Usage: $0 [options]"
+  echo ""
+  echo "  --all                 Install everything"
+  echo "  --desktop             Run desktop customizations"
+  echo "  --node-python         Setup Node.js and Python with version managers"
+  echo "  --devtools            Install CLI dev tools, linters, shells, etc."
+  echo "  --vscode              Install VS Code, Insiders, extensions, config"
+  echo "  --devcontainers       Setup Docker Desktop or containerd/devcontainers"
+  echo "  --dotnet-ai           Install .NET, PowerShell, AI/ML tools"
+  echo "  --lang-sdks           Install Java, Rust, Haskell (via SDKMAN, rustup, ghcup)"
+  echo "  --terminal            Finalize terminal: starship, alacritty, zsh plugins"
+  echo "  --npm                 Install npm global and local dependencies"
+  echo "  --help                Show this help message"
 }
 
-OPTIONS=("devcontainers" "desktop" "devtools" "dotnet-ai" "npm" "node-python" "wsl" "vscode" "all")
+install_all() {
+  "$SCRIPT_DIR/setup-desktop.sh"
+  "$SCRIPT_DIR/setup-node-python.sh"
+  "$SCRIPT_DIR/setup-devtools.sh"
+  "$SCRIPT_DIR/setup-vscode.sh"
+  "$SCRIPT_DIR/setup-devcontainers.sh"
+  "$SCRIPT_DIR/setup-dotnet-ai.sh"
+  "$SCRIPT_DIR/setup-lang-sdks.sh"
+  "$SCRIPT_DIR/setup-terminal-enhancements.sh"
+  "$SCRIPT_DIR/setup-npm.sh"
+  "$SCRIPT_DIR/setup-vscommunity.sh"
+  "$SCRIPT_DIR/validate-docker-desktop.sh"
+  "$SCRIPT_DIR/setup-wsl.sh" 2>/dev/null || true
+}
 
-for opt in "${OPTIONS[@]}"; do
-  case "$opt" in
-    devcontainers) run_script setup-devcontainers.sh ;;
-    desktop) run_script setup-desktop.sh ;;
-    devtools) run_script setup-devtools.sh ;;
-    dotnet-ai) run_script setup-dotnet-ai.sh ;;
-    npm) run_script setup-npm.sh ;;
-    node-python) run_script setup-node-python.sh ;;
-    wsl) run_script setup-wsl.sh ;;
-    vscode) run_script setup-vscode.sh ;;
-    all)
-      run_script setup-devcontainers.sh
-      run_script setup-desktop.sh
-      run_script setup-devtools.sh
-      run_script setup-dotnet-ai.sh
-      run_script setup-npm.sh
-      run_script setup-node-python.sh
-      run_script setup-wsl.sh
-      run_script setup-vscode.sh
-    ;;
+# --- Parse CLI arguments ---
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 1
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --all) install_all ;;
+    --desktop) "$SCRIPT_DIR/setup-desktop.sh" ;;
+    --node-python) "$SCRIPT_DIR/setup-node-python.sh" ;;
+    --devtools) "$SCRIPT_DIR/setup-devtools.sh" ;;
+    --vscode) "$SCRIPT_DIR/setup-vscode.sh" ;;
+    --devcontainers) "$SCRIPT_DIR/setup-devcontainers.sh" ;;
+    --dotnet-ai) "$SCRIPT_DIR/setup-dotnet-ai.sh" ;;
+    --lang-sdks) "$SCRIPT_DIR/setup-lang-sdks.sh" ;;
+    --terminal) "$SCRIPT_DIR/setup-terminal-enhancements.sh" ;;
+    --npm) "$SCRIPT_DIR/setup-npm.sh" ;;
+    --help|-h) show_help; exit 0 ;;
+    *) echo "❌ Unknown option: $arg"; show_help; exit 1 ;;
   esac
 done
 
-echo "✅ Summary written to $SUMMARY_LOG"
+# --- Final validation ---
+echo "✅ Validating development environment..."
+
+declare -A tools=(
+  [nvm]="Node Version Manager"
+  [pyenv]="Python Version Manager"
+  [sdk]="SDKMAN for Java"
+  [rustup]="Rust Toolchain Manager"
+  [ghcup]="Haskell Toolchain Manager"
+)
+
+for cmd in "${!tools[@]}"; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "⚠️  ${tools[$cmd]} ($cmd) not found in PATH"
+  else
+    echo "✅ ${tools[$cmd]} is installed: $($cmd --version 2>/dev/null || true)"
+  fi
+done
+
+if [[ "$ENV_TYPE" == "WSL2" ]]; then
+  echo "🔍 WSL2 detected — verifying systemd state..."
+  if pidof systemd &>/dev/null && systemctl is-system-running --quiet; then
+    echo "✅ systemd is running inside WSL2"
+  else
+    echo "⚠️  systemd is not active in WSL2 — double-check your /etc/wsl.conf"
+  fi
+
+  echo ""
+  echo "📢 To apply WSL configuration changes, please run:"
+  echo "   👉 wsl --shutdown"
+  echo "Then reopen your WSL terminal."
+fi
+
+echo ""
+echo "🎉 All requested components installed successfully."
+echo "💡 Restart your terminal or re-login for full effect."

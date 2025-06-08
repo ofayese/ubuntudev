@@ -1,17 +1,7 @@
 # This script ensures all shell scripts have Linux line endings
 # Run with: powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
-$files = @(
-    "install.sh",
-    "setup-desktop.sh",
-    "setup-devcontainers.sh",
-    "setup-devtools.sh",
-    "setup-dotnet-ai.sh",
-    "setup-npm.sh",
-    "setup-node-python.sh",
-    "setup-wsl.sh",
-    "setup-vscode.sh"
-)
+$files = Get-ChildItem -Path . -Filter *.sh | ForEach-Object { $_.Name }
 
 foreach ($file in $files) {
     $content = Get-Content -Path $file -Raw
