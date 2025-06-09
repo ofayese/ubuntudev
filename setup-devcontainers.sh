@@ -33,25 +33,52 @@ install_docker_desktop_linux() {
   echo "⬇️ Installing Docker Desktop for Linux..."
 
   # Remove conflicting versions
-  sudo apt remove -y docker docker-engine docker.io containerd runc || true
+  sudo apt remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
   sudo apt update
-  sudo apt install -y ca-certificates curl gnupg lsb-release apt-transport-https
+  safe_install ca-certificates curl gnupg lsb-release apt-transport-https
 
   # Download latest Docker Desktop .deb
+  echo "🔍 Fetching Docker Desktop download URL..."
   DESKTOP_URL=$(curl -s https://api.github.com/repos/docker/desktop/releases/latest |
-    grep browser_download_url | grep 'docker-desktop-.*-amd64.deb' | cut -d '"' -f 4)
+    grep browser_download_url | grep 'docker-desktop-.*-amd64.deb' | head -1 | cut -d '"' -f 4)
 
   if [[ -z "$DESKTOP_URL" ]]; then
     echo "❌ Failed to fetch Docker Desktop download URL."
-    exit 1
+    echo "👉 Please install Docker Desktop manually from https://docs.docker.com/desktop/install/linux-install/"
+    return 1
   fi
 
-  curl -L -o /tmp/docker-desktop.deb "$DESKTOP_URL"
-  sudo apt install -y /tmp/docker-desktop.deb
-  rm -f /tmp/docker-desktop.deb
+  echo "📦 Downloading Docker Desktop..."
+  if wget -q -O /tmp/docker-desktop.deb "$DESKTOP_URL"; then
+    echo "🔧 Installing Docker Desktop..."
+    if sudo apt install -y /tmp/docker-desktop.deb 2>/dev/null; then
+      rm -f /tmp/docker-desktop.deb
+      systemctl --user start docker-desktop 2>/dev/null || true
+      echo "✅ Docker Desktop for Linux installed."
+      return 0
+    else
+      echo "⚠️ Docker Desktop installation failed, trying to fix dependencies..."
+      sudo apt --fix-broken install -y 2>/dev/null || true
+      rm -f /tmp/docker-desktop.deb
+      return 1
+    fi
+  else
+    echo "❌ Failed to download Docker Desktop"
+    rm -f /tmp/docker-desktop.deb
+    return 1
+  fi
+}
 
-  systemctl --user start docker-desktop || true
-  echo "✅ Docker Desktop for Linux installed."
+# Function to safely install packages
+safe_install() {
+    local packages=("$@")
+    for pkg in "${packages[@]}"; do
+        if sudo apt install -y "$pkg" 2>/dev/null; then
+            echo "✅ Installed $pkg"
+        else
+            echo "⚠️ Could not install $pkg"
+        fi
+    done
 }
 
 # --- Main logic ---

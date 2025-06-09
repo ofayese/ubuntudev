@@ -7,9 +7,35 @@ echo "=== [setup-terminal-enhancements.sh] Started at $(date) ==="
 
 # --- Install Alacritty + Fonts ---
 echo "🖥️ Installing Alacritty + JetBrains Mono..."
-sudo add-apt-repository -y ppa:aslatter/ppa
-sudo apt update
-sudo apt install -y alacritty fonts-jetbrains-mono fonts-firacode neofetch
+
+# Try to add the PPA, but don't fail if it doesn't work
+if sudo add-apt-repository -y ppa:aslatter/ppa 2>/dev/null; then
+    echo "✅ Added Alacritty PPA"
+else
+    echo "⚠️ Could not add Alacritty PPA, trying from default repos..."
+fi
+
+sudo apt update || echo "⚠️ apt update failed, continuing..."
+
+# Install packages with error handling
+packages_to_install=(fonts-jetbrains-mono fonts-firacode neofetch)
+optional_packages=(alacritty)
+
+for pkg in "${packages_to_install[@]}"; do
+    if sudo apt install -y "$pkg" 2>/dev/null; then
+        echo "✅ Installed $pkg"
+    else
+        echo "⚠️ Could not install $pkg"
+    fi
+done
+
+for pkg in "${optional_packages[@]}"; do
+    if sudo apt install -y "$pkg" 2>/dev/null; then
+        echo "✅ Installed $pkg"
+    else
+        echo "⚠️ Could not install $pkg, may not be available"
+    fi
+done
 
 mkdir -p ~/.config/alacritty
 cat > ~/.config/alacritty/alacritty.toml <<'EOF'
@@ -193,4 +219,4 @@ echo ""
 
 echo "✅ Terminal enhancements complete!"
 echo "🎨 Starship configuration installed."
-echo "✅ Terminal enhancements complete. Restart your shell to see the effects."
+echo "🔄 Restart your shell to see the effects."

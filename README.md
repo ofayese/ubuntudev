@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 | `devcontainers` | containerd, BuildKit, nerdctl for container development | `setup-devcontainers.sh` |
 | `desktop` | Desktop applications, security, multimedia tools | `setup-desktop.sh` |
 | `devtools` | Modern CLI tools, zsh, tmux, git configuration | `setup-devtools.sh` |
-| `dotnet-ai` | .NET SDKs (8.0, 9.0, 10.0), PowerShell, Miniconda | `setup-dotnet-ai.sh` |
+| `dotnet-ai` | .NET SDKs (8.0, 9.0, 10.0 if available), PowerShell, Miniconda | `setup-dotnet-ai.sh` |
 | `node-python` | Node.js (LTS + Current), Python 3.12, version managers | `setup-node-python.sh` |
 | `npm` | Global npm packages for development | `setup-npm.sh` |
 | `vscode` | VS Code + VS Code Insiders with extensions | `setup-vscode.sh` |
@@ -116,7 +116,7 @@ sudo ./setup-devcontainers.sh
 
 - **Node.js**: LTS (v20.x) and Current via NodeSource + NVM
 - **Python**: Latest 3.12.x via deadsnakes PPA + pyenv
-- **.NET**: SDKs 8.0, 9.0, 10.0
+- **.NET**: SDKs 8.0, 9.0 (10.0 if available)
 - **Go**: Latest version
 - **PowerShell**: Cross-platform PowerShell 7+
 

@@ -5,6 +5,86 @@ LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-desktop.sh] Started at $(date) ==="
 
+# Function to safely install packages
+safe_install() {
+    local packages=("$@")
+    local failed_packages=()
+    
+    for pkg in "${packages[@]}"; do
+        if sudo apt install -y "$pkg" 2>/dev/null; then
+            echo "✅ Installed $pkg"
+        else
+            echo "⚠️ Could not install $pkg - may not be available"
+            failed_packages+=("$pkg")
+        fi
+    done
+    
+    if [ ${#failed_packages[@]} -gt 0 ]; then
+        echo "📋 Failed to install: ${failed_packages[*]}"
+    fi
+}
+
+# Function to safely download and install deb packages
+safe_install_deb() {
+    local url="$1"
+    local name="$2"
+    local temp_file="/tmp/${name}.deb"
+    
+    echo "📦 Installing $name..."
+    if wget -q -O "$temp_file" "$url"; then
+        if sudo apt install -y "$temp_file" 2>/dev/null; then
+            echo "✅ $name installed successfully"
+            rm -f "$temp_file"
+            return 0
+        else
+            echo "⚠️ Failed to install $name"
+            sudo apt --fix-broken install -y 2>/dev/null || true
+            rm -f "$temp_file"
+            return 1
+        fi
+    else
+        echo "⚠️ Failed to download $name"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+# Function to install tools from GitHub releases
+install_from_github() {
+    local repo="$1"
+    local pattern="$2"  
+    local install_cmd="$3"
+    local binary_name="$4"
+    
+    echo "📦 Installing $binary_name from GitHub ($repo)..."
+    
+    if command -v "$binary_name" >/dev/null 2>&1; then
+        echo "✅ $binary_name already installed"
+        return 0
+    fi
+    
+    local download_url
+    download_url=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | \
+                   grep browser_download_url | grep "$pattern" | cut -d '"' -f 4 | head -n 1)
+    
+    if [[ -z "$download_url" ]]; then
+        echo "⚠️ Could not find download URL for $binary_name"
+        return 1
+    fi
+    
+    local temp_file="/tmp/${binary_name}_download"
+    if wget -q -O "$temp_file" "$download_url"; then
+        eval "${install_cmd/\$1/$temp_file}"
+        rm -f "$temp_file"
+        echo "✅ $binary_name installed successfully"
+        return 0
+    else
+        echo "⚠️ Failed to download $binary_name"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
 # --- Detect headless environments ---
 if ! (command -v gnome-shell >/dev/null 2>&1 && echo "${XDG_SESSION_TYPE:-}" | grep -qE 'x11|wayland'); then
   echo "🚫 Headless environment detected — skipping desktop customization."
@@ -13,7 +93,7 @@ fi
 
 # --- System Update & Essentials ---
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y vim nano unzip zip curl wget git software-properties-common
+safe_install vim nano unzip zip curl wget git software-properties-common
 
 # --- Set Default Editor ---
 sudo update-alternatives --set editor /usr/bin/vim.basic
@@ -23,7 +103,7 @@ sudo apt install -y unattended-upgrades
 sudo dpkg-reconfigure -plow unattended-upgrades
 
 # --- Firewall & Hardening ---
-sudo apt install -y ufw gufw fail2ban
+safe_install ufw gufw fail2ban
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow ssh
@@ -38,16 +118,26 @@ echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf
 sudo sysctl -p /etc/sysctl.d/99-swappiness.conf
 
 # --- Dev & Archive Tools ---
-sudo apt install -y p7zip-full p7zip-rar rar unrar tar glow filezilla httpie awscli
+safe_install p7zip-full p7zip-rar rar unrar tar glow filezilla httpie awscli
 
 # --- Markdown & Reading Tools ---
-sudo apt install -y libreoffice foliate apostrophe
-wget -qO /tmp/obsidian.deb https://github.com/obsidianmd/obsidian-releases/releases/latest/download/obsidian_amd64.deb
-sudo apt install -y ./tmp/obsidian.deb || sudo apt --fix-broken install -y
-rm -f /tmp/obsidian.deb
+safe_install libreoffice foliate apostrophe
+safe_install_deb "https://github.com/obsidianmd/obsidian-releases/releases/latest/download/obsidian_amd64.deb" "obsidian"
 
 # --- Fonts & Terminal Enhancements ---
-sudo apt install -y fonts-firacode fonts-jetbrains-mono zsh tmux alacritty tilix starship fzf bat exa fd-find zoxide direnv
+safe_install fonts-firacode fonts-jetbrains-mono zsh tmux alacritty tilix fzf bat fd-find zoxide direnv
+
+# Install starship from official installer
+echo "🚀 Installing Starship prompt..."
+if ! command -v starship >/dev/null 2>&1; then
+    curl -sS https://starship.rs/install.sh | sh -s -- -y
+else
+    echo "✅ Starship already installed"
+fi
+
+# Install eza (modern ls replacement) from GitHub
+install_from_github "eza-community/eza" "eza_.*_amd64.deb" \
+    "sudo apt install -y \$1" "eza"
 
 # --- Oh-My-Zsh & Shell Plugins ---
 RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
@@ -68,22 +158,22 @@ echo ".DS_Store" >> ~/.gitignore_global
 git config --global core.excludesfile ~/.gitignore_global
 
 # --- GNOME Customizations ---
-sudo apt install -y gnome-tweaks gnome-shell-extensions
+safe_install gnome-tweaks gnome-shell-extensions
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
 gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled true
 
 # --- Screenshot & Backup Tools ---
-sudo apt install -y timeshift shutter flameshot
+safe_install timeshift shutter flameshot
 
 # --- Power Management ---
-sudo apt install -y tlp tlp-rdw
+safe_install tlp tlp-rdw
 sudo systemctl enable --now tlp
 
 # --- Multimedia ---
-sudo apt install -y vlc totem gimp imagemagick ffmpeg audacity
+safe_install vlc totem gimp imagemagick ffmpeg audacity
 
 # --- Development Utilities ---
-sudo apt install -y golang-go python3-pip pipenv nala android-tools-adb android-tools-fastboot
+safe_install golang-go python3-pip pipenv nala android-tools-adb android-tools-fastboot
 
 # --- Formatters / Linters ---
 python3 -m pip install --upgrade pip
@@ -95,13 +185,13 @@ echo 'export GOPATH=$HOME/go' >> ~/.profile
 echo 'export PATH=$PATH:$GOPATH/bin' >> ~/.profile
 
 # --- Download Tools ---
-sudo apt install -y axel transmission aria2
+safe_install axel transmission aria2
 
 # --- Virtualization ---
-sudo apt install -y virtualbox vagrant
+safe_install virtualbox vagrant
 
 # --- OpenSSH Server ---
-sudo apt install -y openssh-server
+safe_install openssh-server
 sudo systemctl enable --now ssh
 
 # --- GitHub CLI ---
@@ -121,7 +211,7 @@ if [[ -n "$DOCKER_DESKTOP_URL" ]]; then
 fi
 
 # --- Podman, Kind, Minikube ---
-sudo apt install -y podman
+safe_install podman
 curl -Lo /tmp/minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 sudo install /tmp/minikube /usr/local/bin/minikube
 rm /tmp/minikube
@@ -151,7 +241,7 @@ sudo apt update && sudo apt install -y dotnet-sdk-8.0 dotnet-sdk-9.0 dotnet-sdk-
 sudo apt install -y powershell
 
 # --- Language SDKs ---
-sudo apt install -y openjdk-17-jdk gpg
+safe_install openjdk-17-jdk gpg
 curl -s "https://get.sdkman.io" | bash
 source "$HOME/.sdkman/bin/sdkman-init.sh"
 

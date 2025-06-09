@@ -13,7 +13,7 @@ if grep -qi microsoft /proc/version 2>/dev/null || grep -qi microsoft /proc/sys/
 fi
 
 # === Node.js Setup via NVM ===
-echo "📦 Setting up Node.js (LTS: v22.16.0, Current: v24.1.0)..."
+echo "📦 Setting up Node.js (LTS and Current)..."
 
 export NVM_DIR="$HOME/.nvm"
 mkdir -p "$NVM_DIR"
@@ -42,12 +42,20 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
 done
 
 # Install Node.js LTS and Current versions
-nvm install 22.16.0
-nvm install 24.1.0
+echo "🔧 Installing Node.js LTS and Current versions..."
+if ! nvm install --lts; then
+    echo "⚠️ Failed to install LTS, trying specific version..."
+    nvm install 20
+fi
 
-# Set default to Current
-nvm alias default 24.1.0
-nvm use 24.1.0
+if ! nvm install node; then
+    echo "⚠️ Failed to install current, trying specific version..."
+    nvm install 22
+fi
+
+# Set LTS as default
+nvm alias default --lts
+nvm use --lts
 
 # Install global npm packages
 npm install -g npm@latest
@@ -91,9 +99,31 @@ sudo apt install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
   libreadline-dev libsqlite3-dev libncursesw5-dev xz-utils tk-dev \
   libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev curl
 
-# Install specific version
-pyenv install -s 3.12.3
-pyenv global 3.12.3  # Set as default
+# Install specific Python versions (use stable releases)
+echo "🔧 Installing Python versions..."
+
+# Get available Python versions and install latest stable 3.12 and 3.11
+if pyenv install --list | grep -E "^\s*3\.12\.[0-9]+$" | tail -1 | xargs pyenv install -s; then
+    echo "✅ Latest Python 3.12.x installed"
+else
+    echo "⚠️ Failed to install Python 3.12.x, trying 3.11.x..."
+    if pyenv install --list | grep -E "^\s*3\.11\.[0-9]+$" | tail -1 | xargs pyenv install -s; then
+        echo "✅ Latest Python 3.11.x installed"
+    else
+        echo "❌ Failed to install any Python version"
+        exit 1
+    fi
+fi
+
+# Set the installed version as global default
+INSTALLED_VERSION=$(pyenv versions --bare | grep -E "^3\.(12|11)\." | head -1)
+if [ -n "$INSTALLED_VERSION" ]; then
+    pyenv global "$INSTALLED_VERSION"
+    echo "✅ Set Python $INSTALLED_VERSION as global default"
+else
+    echo "❌ No suitable Python version found"
+    exit 1
+fi
 
 # Upgrade pip and install tools
 python -m pip install --upgrade pip

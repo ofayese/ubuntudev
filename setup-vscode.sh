@@ -9,40 +9,73 @@ echo "=== [setup-vscode.sh] Started at $(date) ==="
 IS_HEADLESS=1
 if command -v gnome-shell >/dev/null 2>&1 && echo "${XDG_SESSION_TYPE:-}" | grep -qE 'x11|wayland'; then
   IS_HEADLESS=0
-  echo "??? Desktop environment detected."
+  echo "🖥️ Desktop environment detected."
 else
-  echo "?? Headless or WSL2 environment detected."
+  echo "📱 Headless or WSL2 environment detected."
 fi
 
 # --- Install VS Code and Insiders ---
-echo "?? Installing Visual Studio Code..."
+echo "📦 Installing Visual Studio Code..."
 
-wget -qO /tmp/vscode.deb https://update.code.visualstudio.com/latest/linux-deb-x64/stable
-wget -qO /tmp/vscode-insiders.deb https://update.code.visualstudio.com/latest/linux-deb-x64/insider
+# Function to safely download and install VS Code
+install_vscode_variant() {
+    local variant="$1"
+    local url="$2"
+    local temp_file="/tmp/vscode-${variant}.deb"
+    
+    echo "📦 Installing VS Code $variant..."
+    if wget -q -O "$temp_file" "$url"; then
+        if sudo apt install -y "$temp_file" 2>/dev/null; then
+            echo "✅ VS Code $variant installed successfully"
+            rm -f "$temp_file"
+            return 0
+        else
+            echo "⚠️ Failed to install VS Code $variant"
+            sudo apt --fix-broken install -y 2>/dev/null || true
+            rm -f "$temp_file"
+            return 1
+        fi
+    else
+        echo "⚠️ Failed to download VS Code $variant"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
 
-sudo apt install -y /tmp/vscode.deb /tmp/vscode-insiders.deb
-rm -f /tmp/vscode*.deb
+install_vscode_variant "stable" "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
+install_vscode_variant "insiders" "https://update.code.visualstudio.com/latest/linux-deb-x64/insider"
 
 # --- Set VS Code Insiders as Git editor ---
-echo "?? Configuring Git to use code-insiders as editor..."
+echo "🔧 Configuring Git to use code-insiders as editor..."
 git config --global core.editor "code-insiders --wait"
 
 # --- Extension Installer ---
 install_extensions() {
   local CODE_BIN=$1
-  echo "?? Installing extensions via $CODE_BIN..."
-  $CODE_BIN --install-extension ms-python.python
-  $CODE_BIN --install-extension ms-azuretools.vscode-docker
-  $CODE_BIN --install-extension GitHub.copilot
-  $CODE_BIN --install-extension golang.Go
-  $CODE_BIN --install-extension redhat.vscode-yaml
-  $CODE_BIN --install-extension dbaeumer.vscode-eslint
-  $CODE_BIN --install-extension esbenp.prettier-vscode
-  $CODE_BIN --install-extension PKief.material-icon-theme
-  $CODE_BIN --install-extension eamodio.gitlens
-  $CODE_BIN --install-extension ms-vscode-remote.remote-containers
-  $CODE_BIN --install-extension ms-toolsai.jupyter
-  $CODE_BIN --install-extension ritwickdey.LiveServer
+  echo "🔌 Installing extensions via $CODE_BIN..."
+  
+  local extensions=(
+    "ms-python.python"
+    "ms-azuretools.vscode-docker"
+    "GitHub.copilot"
+    "golang.Go"
+    "redhat.vscode-yaml"
+    "dbaeumer.vscode-eslint"
+    "esbenp.prettier-vscode"
+    "PKief.material-icon-theme"
+    "eamodio.gitlens"
+    "ms-vscode-remote.remote-containers"
+    "ms-toolsai.jupyter"
+    "ritwickdey.LiveServer"
+  )
+  
+  for ext in "${extensions[@]}"; do
+    if $CODE_BIN --install-extension "$ext" 2>/dev/null; then
+      echo "✅ Installed extension: $ext"
+    else
+      echo "⚠️ Failed to install extension: $ext"
+    fi
+  done
 }
 
 # --- Install extensions (desktop only) ---
@@ -50,12 +83,12 @@ if [ "$IS_HEADLESS" -eq 0 ]; then
   install_extensions "code"
   install_extensions "code-insiders"
 else
-  echo "?? Headless environment ? skipping local extension install."
+  echo "📱 Headless environment — skipping local extension install."
   echo "Extensions will be synced when VS Code connects remotely."
 fi
 
 # --- VS Code Settings ---
-echo "?? Configuring VS Code user settings..."
+echo "⚙️ Configuring VS Code user settings..."
 
 SETTINGS='{
   "editor.fontFamily": "JetBrains Mono, Fira Code, Consolas, monospace",
@@ -131,7 +164,7 @@ if [ "$IS_WSL" -eq 1 ]; then
       LINK_NAME="${SERVER_DIR}/${WSL_REMOTE_NAME}"
       if [ ! -L "$LINK_NAME" ]; then
         ln -s "$HASHED" "$LINK_NAME"
-        echo "?? Symlink created: $LINK_NAME ? $HASHED"
+        echo "🔗 Symlink created: $LINK_NAME → $HASHED"
       fi
     fi
   done
@@ -140,5 +173,5 @@ fi
 # --- System Utils for VS Code ---
 sudo apt install -y xdg-utils
 
-echo "? VS Code (and Insiders) fully installed and configured."
+echo "✅ VS Code (and Insiders) fully installed and configured."
 echo "=== [setup-vscode.sh] Finished at $(date) ==="

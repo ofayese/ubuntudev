@@ -6,12 +6,31 @@ exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-dotnet-ai.sh] Started at $(date) ==="
 
 # --- DOTNET SDKs ---
-echo "📦 Installing .NET SDKs 8.0, 9.0, 10.0..."
+echo "📦 Installing .NET SDKs 8.0, 9.0..."
 wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
 sudo dpkg -i packages-microsoft-prod.deb
 rm packages-microsoft-prod.deb
 sudo apt update
-sudo apt install -y dotnet-sdk-8.0 dotnet-sdk-9.0 dotnet-sdk-10.0
+
+# Install .NET SDKs with error handling
+if sudo apt install -y dotnet-sdk-8.0; then
+    echo "✅ .NET 8.0 SDK installed"
+else
+    echo "⚠️ Failed to install .NET 8.0 SDK"
+fi
+
+if sudo apt install -y dotnet-sdk-9.0; then
+    echo "✅ .NET 9.0 SDK installed"
+else
+    echo "⚠️ Failed to install .NET 9.0 SDK"
+fi
+
+# .NET 10.0 might not be available yet (preview/RC)
+if sudo apt install -y dotnet-sdk-10.0 2>/dev/null; then
+    echo "✅ .NET 10.0 SDK installed"
+else
+    echo "⚠️ .NET 10.0 SDK not available (may be in preview)"
+fi
 
 # --- PowerShell ---
 echo "💻 Installing PowerShell..."

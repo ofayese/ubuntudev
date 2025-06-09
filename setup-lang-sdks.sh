@@ -31,10 +31,27 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
   fi
 done
 
-# Install Java SDKs (choose common versions)
-sdk install java 17.0.9-tem
-sdk install java 21.0.2-tem
-sdk default java 17.0.9-tem
+# Install Java SDKs (choose common versions with fallback)
+echo "☕ Installing Java SDKs..."
+if ! sdk install java 17.0.9-tem 2>/dev/null; then
+    echo "⚠️ Specific Java 17.0.9 not available, trying latest 17.x..."
+    sdk install java 17-tem 2>/dev/null || \
+    sdk install java 17.0-tem 2>/dev/null || \
+    echo "❌ Failed to install Java 17"
+fi
+
+if ! sdk install java 21.0.2-tem 2>/dev/null; then
+    echo "⚠️ Specific Java 21.0.2 not available, trying latest 21.x..."
+    sdk install java 21-tem 2>/dev/null || \
+    sdk install java 21.0-tem 2>/dev/null || \
+    echo "❌ Failed to install Java 21"
+fi
+
+# Set default (prefer 17 for broader compatibility)
+sdk default java 17-tem 2>/dev/null || \
+sdk default java 17.0-tem 2>/dev/null || \
+sdk default java 17.0.9-tem 2>/dev/null || \
+echo "⚠️ Could not set Java 17 as default"
 
 # --- HASKELL via GHCup ---
 echo "🧮 Installing Haskell via GHCup..."
