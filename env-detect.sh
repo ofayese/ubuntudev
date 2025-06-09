@@ -11,3 +11,6 @@ detect_environment() {
     echo "HEADLESS"
   fi
 }
+
+# Call the function to output the environment type
+detect_environment

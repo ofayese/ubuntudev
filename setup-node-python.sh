@@ -45,9 +45,9 @@ done
 nvm install 22.16.0
 nvm install 24.1.0
 
-# Set default to LTS
-nvm alias default 22.16.0
-nvm use 22.16.0
+# Set default to Current
+nvm alias default 24.1.0
+nvm use 24.1.0
 
 # Install global npm packages
 npm install -g npm@latest
@@ -59,7 +59,7 @@ echo "👉 Current Node.js version: $(node -v)"
 echo "👉 Current npm version: $(npm -v)"
 
 # === Python Setup via pyenv ===
-echo "🐍 Setting up Python (3.12 & 3.13)..."
+echo "🐍 Setting up Python (3.12)..."
 
 # Core dependencies
 sudo apt update
@@ -91,10 +91,9 @@ sudo apt install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
   libreadline-dev libsqlite3-dev libncursesw5-dev xz-utils tk-dev \
   libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev curl
 
-# Install specific versions
+# Install specific version
 pyenv install -s 3.12.3
-pyenv install -s 3.13.0b1
-pyenv global 3.13.0b1  # Set latest as default
+pyenv global 3.12.3  # Set as default
 
 # Upgrade pip and install tools
 python -m pip install --upgrade pip
