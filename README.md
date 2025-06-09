@@ -23,10 +23,8 @@ A comprehensive collection of scripts to set up a modern development environment
 ### Clone and Setup
 
 ```bash
-# Clone this repository (HTTPS)
-git clone https://github.com/ofayese/ubuntudev.git
-# Or using SSH
-# git clone git@github.com:ofayese/ubuntudev.git
+# Clone this repository
+git clone <repository-url>
 cd ubuntudev
 
 # Make scripts executable
@@ -53,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 | `devcontainers` | containerd, BuildKit, nerdctl for container development | `setup-devcontainers.sh` |
 | `desktop` | Desktop applications, security, multimedia tools | `setup-desktop.sh` |
 | `devtools` | Modern CLI tools, zsh, tmux, git configuration | `setup-devtools.sh` |
-| `dotnet-ai` | .NET SDKs (8.0, 9.0, 10.0 if available), PowerShell, Miniconda | `setup-dotnet-ai.sh` |
+| `dotnet-ai` | .NET SDKs (8.0, 9.0, 10.0), PowerShell, Miniconda | `setup-dotnet-ai.sh` |
 | `node-python` | Node.js (LTS + Current), Python 3.12, version managers | `setup-node-python.sh` |
 | `npm` | Global npm packages for development | `setup-npm.sh` |
 | `vscode` | VS Code + VS Code Insiders with extensions | `setup-vscode.sh` |
@@ -118,7 +116,7 @@ sudo ./setup-devcontainers.sh
 
 - **Node.js**: LTS (v20.x) and Current via NodeSource + NVM
 - **Python**: Latest 3.12.x via deadsnakes PPA + pyenv
-- **.NET**: SDKs 8.0, 9.0 (10.0 if available)
+- **.NET**: SDKs 8.0, 9.0, 10.0
 - **Go**: Latest version
 - **PowerShell**: Cross-platform PowerShell 7+
 
@@ -246,12 +244,10 @@ sudo ./setup-devcontainers.sh
 
 ## 🤝 Contributing
 
-1. Fork the repository: [https://github.com/ofayese/ubuntudev](https://github.com/ofayese/ubuntudev)
-2. Test scripts in clean Ubuntu environment
-3. Follow existing code style and error handling
-4. Update README for new features
-5. Ensure WSL2 and Desktop compatibility
-6. Submit a pull request to the repository
+1. Test scripts in clean Ubuntu environment
+2. Follow existing code style and error handling
+3. Update README for new features
+4. Ensure WSL2 and Desktop compatibility
 
 ## 📄 License
 

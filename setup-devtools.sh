@@ -1,9 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Set non-interactive environment for apt
-export DEBIAN_FRONTEND=noninteractive
-
 LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-devtools.sh] Started at $(date) ==="
@@ -39,33 +36,14 @@ install_from_github() {
     local temp_file="/tmp/${name}_$(basename "$download_url")"
     
     if wget -q -O "$temp_file" "$download_url"; then
-        # Create a temporary directory for extraction to avoid conflicts (only for tar files)
-        local temp_dir="/tmp/${name}_extract_$$"
-        
-        if [[ "$temp_file" == *.tar.gz ]] || [[ "$temp_file" == *.tgz ]]; then
-            mkdir -p "$temp_dir"
-            if eval "$install_cmd '$temp_file' '$temp_dir'"; then
-                echo "✅ $name installed successfully"
-                rm -f "$temp_file"
-                rm -rf "$temp_dir"
-                return 0
-            else
-                echo "⚠️ Failed to install $name"
-                rm -f "$temp_file"
-                rm -rf "$temp_dir"
-                return 1
-            fi
+        if eval "$install_cmd '$temp_file'"; then
+            echo "✅ $name installed successfully"
+            rm -f "$temp_file"
+            return 0
         else
-            # For .deb files, don't use temp_dir
-            if eval "$install_cmd '$temp_file'"; then
-                echo "✅ $name installed successfully"
-                rm -f "$temp_file"
-                return 0
-            else
-                echo "⚠️ Failed to install $name"
-                rm -f "$temp_file"
-                return 1
-            fi
+            echo "⚠️ Failed to install $name"
+            rm -f "$temp_file"
+            return 1
         fi
     else
         echo "⚠️ Failed to download $name"
@@ -116,7 +94,7 @@ fi
 
 # Install modern CLI tools from GitHub
 install_from_github "eza-community/eza" "x86_64-unknown-linux-gnu.tar.gz" \
-    "tar -xf \$1 -C \$2 && find \$2 -name 'eza' -type f | xargs sudo install -m 755 -D -t /usr/local/bin" "eza"
+    "sudo tar -xf \$1 -C /usr/local/bin eza" "eza"
 
 install_from_github "muesli/duf" "linux_amd64.deb" \
     "sudo apt install -y \$1" "duf"
@@ -128,10 +106,10 @@ install_from_github "bootandy/dust" "amd64.deb" \
     "sudo apt install -y \$1" "dust"
 
 install_from_github "ClementTsang/bottom" "amd64.tar.gz" \
-    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/btm /usr/local/bin/btm" "bottom"
+    "tar -xf \$1 -C /tmp btm && sudo install /tmp/btm /usr/local/bin/btm && rm -f /tmp/btm" "bottom"
 
 install_from_github "jesseduffield/lazydocker" "Linux_x86_64.tar.gz" \
-    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/lazydocker /usr/local/bin" "lazydocker"
+    "tar -xf \$1 -C /tmp lazydocker && sudo install /tmp/lazydocker /usr/local/bin && rm -f /tmp/lazydocker" "lazydocker"
 
 # --- ZSH + Oh-My-Zsh ---
 echo "🐚 Installing ZSH and Oh-My-Zsh..."
@@ -161,9 +139,30 @@ fi
 
 # --- GIT CONFIGURATION ---
 echo "🛠 Configuring Git..."
-git config --global user.name "Olaolu Fayese" || true
-git config --global user.email "60392167+ofayese@users.noreply.github.com" || true
-git config --global core.editor "code-insiders --wait" || true
+# Check if git user is already configured
+if [ -z "$(git config --global user.name)" ]; then
+  read -p "Enter your Git username: " GIT_USERNAME
+  git config --global user.name "$GIT_USERNAME" || true
+fi
+
+if [ -z "$(git config --global user.email)" ]; then
+  read -p "Enter your Git email: " GIT_EMAIL
+  git config --global user.email "$GIT_EMAIL" || true
+fi
+
+# Check if we're in WSL2
+IS_WSL=0
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=1
+fi
+
+# Configure appropriate editor based on environment
+if [ "$IS_WSL" -eq 1 ]; then
+  git config --global core.editor "code-insiders --wait --remote wsl+$(grep -oP "(?<=^NAME=\").*(?=\")" /etc/os-release | tr ' ' '-' | tr '[:upper:]' '[:lower:]')" || true
+else
+  git config --global core.editor "code-insiders --wait" || true
+fi
+
 git config --global pull.rebase false || true
 git config --global init.defaultBranch main || true
 git config --global commit.gpgsign false || true

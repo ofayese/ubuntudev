@@ -1,9 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Set non-interactive environment for apt
-export DEBIAN_FRONTEND=noninteractive
-
 LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-terminal-enhancements.sh] Started at $(date) ==="
@@ -203,14 +200,8 @@ fi
 # --- Git Best Practice ---
 echo "🔧 Configuring Git..."
 
-git config --global core.editor "code-insiders --wait"
-git config --global pull.rebase false
-git config --global init.defaultBranch main
-git config --global commit.gpgsign false
-git config --global core.excludesfile ~/.gitignore_global
-git config --global user.name "Olaolu Fayese"
-git config --global user.email "60392167+ofayese@users.noreply.github.com"
-echo ".DS_Store" >> ~/.gitignore_global
+# Git configuration is handled in setup-devtools.sh
+echo "🔄 Skip Git configuration here to avoid redundancy"
 
 # --- Manual Terminal Tips ---
 echo ""

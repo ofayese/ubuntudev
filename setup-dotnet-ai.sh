@@ -1,9 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Set non-interactive environment for apt
-export DEBIAN_FRONTEND=noninteractive
-
 LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-dotnet-ai.sh] Started at $(date) ==="

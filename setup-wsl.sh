@@ -83,11 +83,25 @@ echo "✅ DNS configuration complete."
 # --- VS Code WSL integration ---
 echo "💻 Configuring VS Code Remote - WSL..."
 
-if command -v code >/dev/null 2>&1; then
-  code --install-extension ms-vscode-remote.remote-wsl || true
-fi
-if command -v code-insiders >/dev/null 2>&1; then
-  code-insiders --install-extension ms-vscode-remote.remote-wsl || true
+# Check if VS Code is installed in WSL and uninstall if found
+if command -v code >/dev/null 2>&1 || command -v code-insiders >/dev/null 2>&1; then
+    echo "🔍 VS Code installation detected in WSL. Removing redundant installation..."
+    
+    if command -v code >/dev/null 2>&1; then
+        echo "🗑️ Removing VS Code from WSL..."
+        sudo DEBIAN_FRONTEND=noninteractive apt remove -y code
+    fi
+    
+    if command -v code-insiders >/dev/null 2>&1; then
+        echo "🗑️ Removing VS Code Insiders from WSL..."
+        sudo DEBIAN_FRONTEND=noninteractive apt remove -y code-insiders
+    fi
+    
+    # Clean up any leftover dependencies
+    sudo DEBIAN_FRONTEND=noninteractive apt autoremove -y
+    
+    echo "✅ Removed redundant VS Code installation from WSL."
+    echo "   Remote-WSL extension in Windows VS Code handles the connection automatically."
 fi
 
 mkdir -p ~/.vscode-server/data/Machine

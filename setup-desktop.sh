@@ -1,9 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Set non-interactive environment for apt
-export DEBIAN_FRONTEND=noninteractive
-
 LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-desktop.sh] Started at $(date) ==="
@@ -155,10 +152,8 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 # --- Git Configuration ---
 git config --global core.editor "code-insiders --wait"
 git config --global pull.rebase false
-git config --global init.defaultBranch main
-git config --global commit.gpgsign false
-echo ".DS_Store" >> ~/.gitignore_global
-git config --global core.excludesfile ~/.gitignore_global
+# Git configuration is handled in setup-devtools.sh
+echo "🔄 Skip Git configuration here to avoid redundancy"
 
 # --- GNOME Customizations ---
 safe_install gnome-tweaks gnome-shell-extensions
