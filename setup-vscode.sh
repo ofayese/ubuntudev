@@ -43,14 +43,14 @@ install_vscode_from_repo() {
     echo "📦 Installing VS Code from Microsoft repository..."
     
     # Install VS Code stable
-    if sudo apt install -y code; then
+    if sudo DEBIAN_FRONTEND=noninteractive apt install -y code; then
         echo "✅ VS Code stable installed successfully"
     else
         echo "⚠️ Failed to install VS Code stable from repository"
     fi
     
     # Try to install VS Code Insiders (may not be available in repository)
-    if sudo apt install -y code-insiders 2>/dev/null; then
+    if sudo DEBIAN_FRONTEND=noninteractive apt install -y code-insiders 2>/dev/null; then
         echo "✅ VS Code Insiders installed successfully"
     else
         echo "📦 Installing VS Code Insiders from direct download..."
@@ -66,13 +66,13 @@ install_vscode_variant() {
     
     echo "📦 Installing VS Code $variant..."
     if wget -q -O "$temp_file" "$url"; then
-        if sudo -E apt install -y "$temp_file" 2>/dev/null; then
+        if sudo DEBIAN_FRONTEND=noninteractive apt install -y "$temp_file" 2>/dev/null; then
             echo "✅ VS Code $variant installed successfully"
             rm -f "$temp_file"
             return 0
         else
             echo "⚠️ Failed to install VS Code $variant"
-            sudo apt --fix-broken install -y 2>/dev/null || true
+            sudo DEBIAN_FRONTEND=noninteractive apt --fix-broken install -y 2>/dev/null || true
             rm -f "$temp_file"
             return 1
         fi

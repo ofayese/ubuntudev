@@ -116,7 +116,7 @@ fi
 
 # Install modern CLI tools from GitHub
 install_from_github "eza-community/eza" "x86_64-unknown-linux-gnu.tar.gz" \
-    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/eza /usr/local/bin/eza" "eza"
+    "tar -xf \$1 -C \$2 && find \$2 -name 'eza' -type f | xargs sudo install -m 755 -D -t /usr/local/bin" "eza"
 
 install_from_github "muesli/duf" "linux_amd64.deb" \
     "sudo apt install -y \$1" "duf"
