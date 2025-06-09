@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Set non-interactive environment for apt
+export DEBIAN_FRONTEND=noninteractive
+
 LOGFILE="/var/log/ubuntu-dev-tools.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 echo "=== [setup-devtools.sh] Started at $(date) ==="
@@ -36,14 +39,33 @@ install_from_github() {
     local temp_file="/tmp/${name}_$(basename "$download_url")"
     
     if wget -q -O "$temp_file" "$download_url"; then
-        if eval "$install_cmd '$temp_file'"; then
-            echo "✅ $name installed successfully"
-            rm -f "$temp_file"
-            return 0
+        # Create a temporary directory for extraction to avoid conflicts (only for tar files)
+        local temp_dir="/tmp/${name}_extract_$$"
+        
+        if [[ "$temp_file" == *.tar.gz ]] || [[ "$temp_file" == *.tgz ]]; then
+            mkdir -p "$temp_dir"
+            if eval "$install_cmd '$temp_file' '$temp_dir'"; then
+                echo "✅ $name installed successfully"
+                rm -f "$temp_file"
+                rm -rf "$temp_dir"
+                return 0
+            else
+                echo "⚠️ Failed to install $name"
+                rm -f "$temp_file"
+                rm -rf "$temp_dir"
+                return 1
+            fi
         else
-            echo "⚠️ Failed to install $name"
-            rm -f "$temp_file"
-            return 1
+            # For .deb files, don't use temp_dir
+            if eval "$install_cmd '$temp_file'"; then
+                echo "✅ $name installed successfully"
+                rm -f "$temp_file"
+                return 0
+            else
+                echo "⚠️ Failed to install $name"
+                rm -f "$temp_file"
+                return 1
+            fi
         fi
     else
         echo "⚠️ Failed to download $name"
@@ -94,7 +116,7 @@ fi
 
 # Install modern CLI tools from GitHub
 install_from_github "eza-community/eza" "x86_64-unknown-linux-gnu.tar.gz" \
-    "sudo tar -xf \$1 -C /usr/local/bin eza" "eza"
+    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/eza /usr/local/bin/eza" "eza"
 
 install_from_github "muesli/duf" "linux_amd64.deb" \
     "sudo apt install -y \$1" "duf"
@@ -106,10 +128,10 @@ install_from_github "bootandy/dust" "amd64.deb" \
     "sudo apt install -y \$1" "dust"
 
 install_from_github "ClementTsang/bottom" "amd64.tar.gz" \
-    "tar -xf \$1 -C /tmp btm && sudo install /tmp/btm /usr/local/bin/btm && rm -f /tmp/btm" "bottom"
+    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/btm /usr/local/bin/btm" "bottom"
 
 install_from_github "jesseduffield/lazydocker" "Linux_x86_64.tar.gz" \
-    "tar -xf \$1 -C /tmp lazydocker && sudo install /tmp/lazydocker /usr/local/bin && rm -f /tmp/lazydocker" "lazydocker"
+    "tar -xf \$1 -C \$2 --strip-components=1 && sudo install \$2/lazydocker /usr/local/bin" "lazydocker"
 
 # --- ZSH + Oh-My-Zsh ---
 echo "🐚 Installing ZSH and Oh-My-Zsh..."

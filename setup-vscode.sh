@@ -17,7 +17,48 @@ fi
 # --- Install VS Code and Insiders ---
 echo "📦 Installing Visual Studio Code..."
 
-# Function to safely download and install VS Code
+# Set environment to non-interactive
+export DEBIAN_FRONTEND=noninteractive
+
+# Pre-configure debconf responses and add Microsoft repository manually
+echo "🔧 Setting up Microsoft repository for VS Code..."
+
+# Pre-configure debconf responses
+echo 'code code/add-microsoft-repo boolean true' | sudo debconf-set-selections
+
+# Add Microsoft GPG key and repository manually to avoid interactive prompts
+if ! command -v code >/dev/null && ! command -v code-insiders >/dev/null; then
+    # Add Microsoft GPG key
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo dd of=/usr/share/keyrings/packages.microsoft.gpg
+    
+    # Add VS Code repository
+    echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+    
+    # Update package cache
+    sudo apt update -y
+fi
+
+# Function to safely install VS Code from repository
+install_vscode_from_repo() {
+    echo "📦 Installing VS Code from Microsoft repository..."
+    
+    # Install VS Code stable
+    if sudo apt install -y code; then
+        echo "✅ VS Code stable installed successfully"
+    else
+        echo "⚠️ Failed to install VS Code stable from repository"
+    fi
+    
+    # Try to install VS Code Insiders (may not be available in repository)
+    if sudo apt install -y code-insiders 2>/dev/null; then
+        echo "✅ VS Code Insiders installed successfully"
+    else
+        echo "📦 Installing VS Code Insiders from direct download..."
+        install_vscode_variant "insiders" "https://update.code.visualstudio.com/latest/linux-deb-x64/insider"
+    fi
+}
+
+# Function to safely download and install VS Code (fallback)
 install_vscode_variant() {
     local variant="$1"
     local url="$2"
@@ -25,7 +66,7 @@ install_vscode_variant() {
     
     echo "📦 Installing VS Code $variant..."
     if wget -q -O "$temp_file" "$url"; then
-        if sudo apt install -y "$temp_file" 2>/dev/null; then
+        if sudo -E apt install -y "$temp_file" 2>/dev/null; then
             echo "✅ VS Code $variant installed successfully"
             rm -f "$temp_file"
             return 0
@@ -42,8 +83,8 @@ install_vscode_variant() {
     fi
 }
 
-install_vscode_variant "stable" "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
-install_vscode_variant "insiders" "https://update.code.visualstudio.com/latest/linux-deb-x64/insider"
+# Install VS Code
+install_vscode_from_repo
 
 # --- Set VS Code Insiders as Git editor ---
 echo "🔧 Configuring Git to use code-insiders as editor..."
