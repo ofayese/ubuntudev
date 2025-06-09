@@ -14,28 +14,68 @@ else
   echo "📱 Headless or WSL2 environment detected."
 fi
 
-# --- Install VS Code and Insiders ---
-echo "📦 Installing Visual Studio Code..."
+# --- Detect WSL environment ---
+IS_WSL=0
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=1
+  echo "🐧 WSL environment detected."
+fi
 
-# Set environment to non-interactive
-export DEBIAN_FRONTEND=noninteractive
-
-# Pre-configure debconf responses and add Microsoft repository manually
-echo "🔧 Setting up Microsoft repository for VS Code..."
-
-# Pre-configure debconf responses
-echo 'code code/add-microsoft-repo boolean true' | sudo debconf-set-selections
-
-# Add Microsoft GPG key and repository manually to avoid interactive prompts
-if ! command -v code >/dev/null && ! command -v code-insiders >/dev/null; then
-    # Add Microsoft GPG key
-    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo dd of=/usr/share/keyrings/packages.microsoft.gpg
+# --- Install/Uninstall VS Code and Insiders ---
+if [ "$IS_WSL" -eq 1 ]; then
+    echo "📋 WSL detected: Using Windows VS Code with Remote-WSL extension instead of installing VS Code in WSL."
+    echo "   The Remote-WSL extension in Windows VS Code handles the connection automatically."
     
-    # Add VS Code repository
-    echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+    # Check if VS Code is already installed in WSL and uninstall if found
+    if command -v code >/dev/null 2>&1 || command -v code-insiders >/dev/null 2>&1; then
+        echo "🔍 VS Code installation detected in WSL. Removing redundant installation..."
+        
+        if command -v code >/dev/null 2>&1; then
+            echo "🗑️ Removing VS Code from WSL..."
+            sudo DEBIAN_FRONTEND=noninteractive apt remove -y code
+        fi
+        
+        if command -v code-insiders >/dev/null 2>&1; then
+            echo "🗑️ Removing VS Code Insiders from WSL..."
+            sudo DEBIAN_FRONTEND=noninteractive apt remove -y code-insiders
+        fi
+        
+        # Clean up any leftover dependencies
+        sudo DEBIAN_FRONTEND=noninteractive apt autoremove -y
+        
+        echo "✅ Removed redundant VS Code installation from WSL."
+    fi
     
-    # Update package cache
-    sudo apt update -y
+    # Create the necessary directories for Remote-WSL
+    mkdir -p ~/.vscode-server/data/Machine
+    mkdir -p ~/.vscode-server-insiders/data/Machine
+    SKIP_VSCODE_INSTALL=1
+else
+    echo "📦 Installing Visual Studio Code..."
+    SKIP_VSCODE_INSTALL=0
+fi
+
+if [ "${SKIP_VSCODE_INSTALL:-0}" -eq 0 ]; then
+    # Set environment to non-interactive
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Pre-configure debconf responses and add Microsoft repository manually
+    echo "🔧 Setting up Microsoft repository for VS Code..."
+    
+    # Pre-configure debconf responses
+    echo 'code code/add-microsoft-repo boolean true' | sudo debconf-set-selections
+    
+    # Add Microsoft GPG key and repository manually to avoid interactive prompts
+    if ! command -v code >/dev/null && ! command -v code-insiders >/dev/null; then
+        # Add Microsoft GPG key
+        wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo dd of=/usr/share/keyrings/packages.microsoft.gpg
+        
+        # Add VS Code repository
+        echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+        
+        # Update package cache
+        sudo apt update -y
+    fi
 fi
 
 # Function to safely install VS Code from repository
@@ -83,12 +123,19 @@ install_vscode_variant() {
     fi
 }
 
-# Install VS Code
-install_vscode_from_repo
+# Install VS Code (if not skipped for WSL)
+if [ "${SKIP_VSCODE_INSTALL:-0}" -eq 0 ]; then
+    install_vscode_from_repo
+fi
 
 # --- Set VS Code Insiders as Git editor ---
-echo "🔧 Configuring Git to use code-insiders as editor..."
-git config --global core.editor "code-insiders --wait"
+if [ "$IS_WSL" -eq 0 ]; then
+    echo "🔧 Configuring Git to use code-insiders as editor..."
+    git config --global core.editor "code-insiders --wait"
+else
+    echo "🔧 Configuring Git to use Windows VS Code with Remote-WSL..."
+    git config --global core.editor "code-insiders --wait --remote wsl"
+fi
 
 # --- Extension Installer ---
 install_extensions() {
@@ -119,12 +166,12 @@ install_extensions() {
   done
 }
 
-# --- Install extensions (desktop only) ---
-if [ "$IS_HEADLESS" -eq 0 ]; then
+# --- Install extensions (desktop only and non-WSL) ---
+if [ "$IS_HEADLESS" -eq 0 ] && [ "$IS_WSL" -eq 0 ]; then
   install_extensions "code"
   install_extensions "code-insiders"
 else
-  echo "📱 Headless environment — skipping local extension install."
+  echo "📱 Headless or WSL environment — skipping local extension install."
   echo "Extensions will be synced when VS Code connects remotely."
 fi
 
@@ -175,11 +222,18 @@ SETTINGS='{
   "window.zoomLevel": 0
 }'
 
-mkdir -p ~/.config/Code/User/
-echo "$SETTINGS" > ~/.config/Code/User/settings.json
-
-mkdir -p ~/.config/Code-Insiders/User/
-echo "$SETTINGS" > ~/.config/Code-Insiders/User/settings.json
+# Only create local settings if VS Code is installed
+if [ "${SKIP_VSCODE_INSTALL:-0}" -eq 0 ]; then
+    mkdir -p ~/.config/Code/User/
+    echo "$SETTINGS" > ~/.config/Code/User/settings.json
+    
+    mkdir -p ~/.config/Code-Insiders/User/
+    echo "$SETTINGS" > ~/.config/Code-Insiders/User/settings.json
+    
+    echo "✅ VS Code settings configured in local installation."
+else
+    echo "ℹ️ Skipping local VS Code settings as we're using Windows VS Code with Remote-WSL."
+fi
 
 # --- WSL Remote Name ---
 IS_WSL=0
@@ -211,8 +265,19 @@ if [ "$IS_WSL" -eq 1 ]; then
   done
 fi
 
-# --- System Utils for VS Code ---
-sudo apt install -y xdg-utils
+# --- System Utils for VS Code if needed ---
+if [ "${SKIP_VSCODE_INSTALL:-0}" -eq 0 ]; then
+    sudo apt install -y xdg-utils
+fi
 
-echo "✅ VS Code (and Insiders) fully installed and configured."
+if [ "$IS_WSL" -eq 1 ]; then
+    echo "✅ VS Code integration with WSL configured successfully."
+    echo "   Any redundant VS Code installations in WSL have been removed."
+    echo "   To use VS Code with WSL:"
+    echo "   1. Install the 'Remote - WSL' extension in your Windows VS Code"
+    echo "   2. Use 'code .' in WSL terminal to open current folder in Windows VS Code"
+    echo "   3. Or connect by clicking the green remote button in Windows VS Code"
+else
+    echo "✅ VS Code (and Insiders) fully installed and configured."
+fi
 echo "=== [setup-vscode.sh] Finished at $(date) ==="

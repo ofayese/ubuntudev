@@ -23,8 +23,10 @@ A comprehensive collection of scripts to set up a modern development environment
 ### Clone and Setup
 
 ```bash
-# Clone this repository
-git clone <repository-url>
+# Clone this repository (HTTPS)
+git clone https://github.com/ofayese/ubuntudev.git
+# Or using SSH
+# git clone git@github.com:ofayese/ubuntudev.git
 cd ubuntudev
 
 # Make scripts executable
@@ -244,10 +246,12 @@ sudo ./setup-devcontainers.sh
 
 ## 🤝 Contributing
 
-1. Test scripts in clean Ubuntu environment
-2. Follow existing code style and error handling
-3. Update README for new features
-4. Ensure WSL2 and Desktop compatibility
+1. Fork the repository: [https://github.com/ofayese/ubuntudev](https://github.com/ofayese/ubuntudev)
+2. Test scripts in clean Ubuntu environment
+3. Follow existing code style and error handling
+4. Update README for new features
+5. Ensure WSL2 and Desktop compatibility
+6. Submit a pull request to the repository
 
 ## 📄 License
 
