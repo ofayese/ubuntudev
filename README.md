@@ -1,6 +1,8 @@
-# Ubuntu Development Environment Setup
+# Ubuntu Development Environment Setup (Modernized)
 
 A comprehensive collection of scripts to set up a modern development environment on Ubuntu Desktop or Ubuntu on WSL2. These scripts provide automated installation and configuration of development tools, container runtimes, programming languages, and desktop applications.
+
+> **Note:** This codebase has been modernized with a modular architecture, improved error handling, unified logging, and better environment detection. Use the new entry point: `./install-new.sh --all`
 
 ## 🚀 Features
 
@@ -38,35 +40,69 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
 ```bash
 # Install all components (recommended)
-./install.sh all
+./install-new.sh --all
 
 # Or install specific components
-./install.sh devtools vscode node-python
+./install-new.sh --devtools --vscode --node-python
 ```
 
 ## 📦 Available Components
 
-| Component | Description | Script |
-|-----------|-------------|--------|
-| `devcontainers` | containerd, BuildKit, nerdctl for container development | `setup-devcontainers.sh` |
-| `desktop` | Desktop applications, security, multimedia tools | `setup-desktop.sh` |
-| `devtools` | Modern CLI tools, zsh, tmux, git configuration | `setup-devtools.sh` |
-| `dotnet-ai` | .NET SDKs (8.0, 9.0, 10.0), PowerShell, Miniconda | `setup-dotnet-ai.sh` |
-| `node-python` | Node.js (LTS + Current), Python 3.12, version managers | `setup-node-python.sh` |
-| `npm` | Global npm packages for development | `setup-npm.sh` |
-| `vscode` | VS Code + VS Code Insiders with extensions | `setup-vscode.sh` |
-| `wsl` | WSL-specific optimizations and configuration | `setup-wsl.sh` |
+| Component | Description | Flag |
+|-----------|-------------|------|
+| All Components | Complete development environment | `--all` |
+| Desktop | Desktop environment setup | `--desktop` |
+| Node & Python | Node.js and Python with version managers | `--node-python` |
+| Dev Tools | CLI dev tools, linters, shells, etc. | `--devtools` |
+| VS Code | VS Code, Insiders, extensions, config | `--vscode` |
+| Dev Containers | Docker Desktop or containerd/devcontainers | `--devcontainers` |
+| .NET & AI | .NET, PowerShell, AI/ML tools | `--dotnet-ai` |
+| Language SDKs | Java, Rust, Haskell | `--lang-sdks` |
+| Terminal | Terminal enhancements | `--terminal` |
+| NPM Packages | Global and local NPM packages | `--npm` |
 
-## 🔧 Individual Script Usage
+## 🧰 Utility Modules
 
-### Container Development
+| Module | Description |
+|--------|-------------|
+| `util-env.sh` | Environment detection and system info |
+| `util-log.sh` | Logging and error handling |
+| `util-packages.sh` | Package management utilities |
+| `util-versions.sh` | Version comparison and management |
+| `util-wsl.sh` | WSL-specific utilities |
+| `util-containers.sh` | Container runtime utilities |
+
+## 🔧 Usage Examples
+
+### Full Installation
 
 ```bash
-# Install container tools (requires sudo)
-sudo ./setup-devcontainers.sh
+# Install everything with a single command
+./install-new.sh --all
 ```
 
-### Development Tools Install
+### Installing Specific Components
+
+```bash
+# Install only developer tools and VS Code
+./install-new.sh --devtools --vscode
+
+# Install Node.js, Python, and container development tools
+./install-new.sh --node-python --devcontainers
+```
+
+### Maintenance & Updates
+
+```bash
+# Update the development environment
+./update-environment.sh
+
+# Check installed versions
+./validate-installation.sh
+
+# Remove legacy files (after migration)
+./cleanup-legacy-files.sh
+```
 
 ```bash
 # Install modern CLI tools and shell enhancements

@@ -1,125 +1,136 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# check-prerequisites.sh - Verify system requirements for installation
 set -euo pipefail
 
-echo "=== [check-prerequisites.sh] Prerequisites Check Started at $(date) ==="
+# Source utility modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-env.sh"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Initialize logging
+init_logging
+log_info "Prerequisites check started"
 
 PREREQUISITES_MET=true
 
 # Check if running as root (not recommended)
 if [[ $EUID -eq 0 ]]; then
-   echo -e "${YELLOW}⚠️ Running as root is not recommended. Please run as a regular user with sudo privileges.${NC}"
+   log_warning "Running as root is not recommended. Please run as a regular user with sudo privileges."
 fi
 
 # Check for sudo privileges
 if ! sudo -n true 2>/dev/null; then
-    echo -e "${YELLOW}⚠️ sudo privileges are required for package installation${NC}"
+    log_warning "sudo privileges are required for package installation"
     if ! sudo -v; then
-        echo -e "${RED}❌ Failed to obtain sudo privileges${NC}"
+        log_error "Failed to obtain sudo privileges"
         PREREQUISITES_MET=false
     fi
 fi
 
 # Check internet connectivity
-echo "🌐 Checking internet connectivity..."
+log_info "Checking internet connectivity..."
 if ping -c 1 google.com >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Internet connectivity confirmed${NC}"
+    log_success "Internet connectivity confirmed"
 else
-    echo -e "${RED}❌ No internet connectivity - required for package downloads${NC}"
+    log_error "No internet connectivity - required for package downloads"
     PREREQUISITES_MET=false
 fi
 
 # Check Ubuntu version
-echo "🐧 Checking Ubuntu version..."
-if [ -f /etc/os-release ]; then
-    source /etc/os-release
-    if [[ "$ID" == "ubuntu" ]]; then
-        echo -e "${GREEN}✅ Ubuntu $VERSION_ID detected${NC}"
-        
-        # Check if version is supported (20.04+)
-        VERSION_MAJOR=$(echo "$VERSION_ID" | cut -d. -f1)
-        VERSION_MINOR=$(echo "$VERSION_ID" | cut -d. -f2)
-        
-        if [[ $VERSION_MAJOR -gt 20 ]] || [[ $VERSION_MAJOR -eq 20 && $VERSION_MINOR -ge 4 ]]; then
-            echo -e "${GREEN}✅ Ubuntu version is supported${NC}"
-        else
-            echo -e "${YELLOW}⚠️ Ubuntu $VERSION_ID may not be fully supported (recommended: 20.04+)${NC}"
-        fi
-    else
-        echo -e "${YELLOW}⚠️ Non-Ubuntu distribution detected: $ID${NC}"
-        echo -e "${YELLOW}   Scripts are designed for Ubuntu but may work on Debian-based distributions${NC}"
-    fi
+log_info "Checking Ubuntu version..."
+ubuntu_version=$(get_ubuntu_version)
+
+if [[ "$ubuntu_version" == "non-ubuntu" ]]; then
+    log_warning "Non-Ubuntu distribution detected. Some features may not work."
+elif [[ "$ubuntu_version" == "unknown" ]]; then
+    log_warning "Unable to determine Ubuntu version"
 else
-    echo -e "${RED}❌ Cannot determine OS version${NC}"
-    PREREQUISITES_MET=false
+    log_success "Ubuntu $ubuntu_version detected"
+    
+    # Check if version is supported (20.04+)
+    VERSION_MAJOR=$(echo "$ubuntu_version" | cut -d. -f1)
+    VERSION_MINOR=$(echo "$ubuntu_version" | cut -d. -f2)
+    
+    if [[ $VERSION_MAJOR -gt 20 ]] || [[ $VERSION_MAJOR -eq 20 && $VERSION_MINOR -ge 4 ]]; then
+        log_success "Ubuntu version is supported"
+    else
+        log_warning "Ubuntu $ubuntu_version may not be fully supported (recommended: 20.04+)"
+    fi
 fi
 
 # Check available disk space (minimum 5GB recommended)
-echo "💾 Checking available disk space..."
-AVAILABLE_SPACE_KB=$(df / | awk 'NR==2 {print $4}')
-AVAILABLE_SPACE_GB=$((AVAILABLE_SPACE_KB / 1024 / 1024))
+log_info "Checking available disk space..."
+AVAILABLE_SPACE_GB=$(get_available_disk)
 
 if [[ $AVAILABLE_SPACE_GB -ge 5 ]]; then
-    echo -e "${GREEN}✅ Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB${NC}"
+    log_success "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB"
 else
-    echo -e "${YELLOW}⚠️ Low disk space: ${AVAILABLE_SPACE_GB}GB available (5GB+ recommended)${NC}"
+    log_warning "Low disk space: ${AVAILABLE_SPACE_GB}GB available (5GB+ recommended)"
 fi
 
 # Check for essential commands
-echo "🔧 Checking essential commands..."
-ESSENTIAL_COMMANDS=("curl" "wget" "git" "sudo")
+log_info "Checking essential commands..."
+ESSENTIAL_COMMANDS=("curl" "wget" "git" "sudo" "bc")
 
 for cmd in "${ESSENTIAL_COMMANDS[@]}"; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ $cmd is available${NC}"
+    if command_exists "$cmd"; then
+        log_success "$cmd is available"
     else
-        echo -e "${RED}❌ $cmd is not available${NC}"
+        log_error "$cmd is not available"
         PREREQUISITES_MET=false
     fi
 done
 
 # Check if apt can be updated
-echo "📦 Testing apt update..."
+log_info "Testing apt update..."
 if sudo apt update >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ apt update successful${NC}"
+    log_success "apt update successful"
 else
-    echo -e "${RED}❌ apt update failed - check network and repository configuration${NC}"
+    log_error "apt update failed - check network and repository configuration"
     PREREQUISITES_MET=false
 fi
 
 # Environment detection
-echo "🔍 Environment detection..."
-if grep -qi microsoft /proc/version 2>/dev/null; then
-    echo -e "${GREEN}✅ WSL environment detected${NC}"
+log_info "Environment detection..."
+ENV_TYPE=$(detect_environment)
+
+if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
+    log_success "WSL environment detected"
     
-    # Check if systemd is enabled in WSL2
-    if grep -qi "microsoft-standard" /proc/sys/kernel/osrelease 2>/dev/null; then
-        echo -e "${GREEN}✅ WSL2 environment confirmed${NC}"
+    # Check WSL version
+    wsl_version=$(get_wsl_version)
+    if [[ "$wsl_version" == "2" ]]; then
+        log_success "WSL2 environment confirmed"
         
-        if ! pidof systemd >/dev/null 2>&1; then
-            echo -e "${YELLOW}⚠️ systemd is not running - add 'systemd=true' to /etc/wsl.conf and restart WSL${NC}"
+        if ! is_systemd_running; then
+            log_warning "systemd is not running - add 'systemd=true' to /etc/wsl.conf and restart WSL"
         else
-            echo -e "${GREEN}✅ systemd is running${NC}"
+            log_success "systemd is running"
         fi
+    else
+        log_warning "WSL1 detected - some features require WSL2"
     fi
-elif command -v gnome-shell >/dev/null 2>&1 && echo "${XDG_SESSION_TYPE:-}" | grep -qE 'x11|wayland' >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Desktop environment detected${NC}"
+elif [[ "$ENV_TYPE" == "$ENV_DESKTOP" ]]; then
+    log_success "Desktop environment detected"
 else
-    echo -e "${GREEN}✅ Headless environment detected${NC}"
+    log_success "Headless environment detected"
+fi
+
+# Check memory
+mem_available=$(get_available_memory)
+log_info "Available memory: ${mem_available}GB"
+if (( $(echo "$mem_available < 2" | bc -l) )); then
+    log_warning "Low memory available: ${mem_available}GB (2GB+ recommended)"
 fi
 
 # Final summary
-echo ""
-echo "📊 Prerequisites Check Summary:"
+log_info "Prerequisites Check Summary:"
 if $PREREQUISITES_MET; then
-    echo -e "${GREEN}✅ All prerequisites met! You can proceed with installation.${NC}"
+    log_success "All prerequisites met! You can proceed with installation."
+    finish_logging
     exit 0
 else
-    echo -e "${RED}❌ Some prerequisites are not met. Please address the issues above before proceeding.${NC}"
+    log_error "Some prerequisites are not met. Please address the issues above before proceeding."
+    finish_logging
     exit 1
 fi

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# install - Entry point script for environment setup
+set -euo pipefail
+
+# Forward to the main installation script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/install-new.sh" "$@"

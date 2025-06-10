@@ -1,51 +1,44 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# setup-wsl.sh - Configure WSL-specific optimizations
 set -euo pipefail
 
-LOGFILE="/var/log/ubuntu-dev-tools.log"
-exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== [setup-wsl.sh] Started at $(date) ==="
+# Use shared utility functions for WSL and environment detection
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-env.sh"
+source "$SCRIPT_DIR/util-wsl.sh"
 
-# --- Detect WSL and WSL2 ---
-IS_WSL=0
-IS_WSL2=0
-if grep -qi microsoft /proc/version 2>/dev/null || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
-  IS_WSL=1
-  if grep -qi "microsoft-standard" /proc/sys/kernel/osrelease 2>/dev/null; then
-    IS_WSL2=1
-  fi
-fi
+# Initialize logging
+init_logging
+log_info "Setting up WSL optimizations"
 
-# --- Detect Ubuntu ---
-IS_UBUNTU=0
-if [ -f /etc/os-release ] && grep -qi 'ubuntu' /etc/os-release; then
-  IS_UBUNTU=1
-fi
+# Verify we're running in WSL
+ENV_TYPE=$(detect_environment)
+WSL_VERSION=$(get_wsl_version)
 
-if [ "$IS_WSL" -eq 0 ]; then
-  echo "🚫 This script is intended for WSL environments only. Exiting."
+if [[ "$ENV_TYPE" != "$ENV_WSL" ]]; then
+  log_error "This script is intended for WSL environments only. Exiting."
+  finish_logging
   exit 0
 fi
 
-if [ "$IS_UBUNTU" -eq 1 ]; then
-  echo "🐧 Ubuntu detected inside WSL."
+# Show environment info
+ubuntu_version=$(get_ubuntu_version)
+if [[ "$ubuntu_version" != "non-ubuntu" && "$ubuntu_version" != "unknown" ]]; then
+  log_info "Ubuntu $ubuntu_version detected inside WSL."
 else
-  echo "⚠️  Non-Ubuntu distribution detected inside WSL."
+  log_warning "Non-Ubuntu distribution detected inside WSL."
 fi
 
-if [ "$IS_WSL2" -eq 1 ]; then
-  echo "🔎 WSL2 environment detected."
+if [[ "$WSL_VERSION" == "2" ]]; then
+  log_info "WSL2 environment detected."
 else
-  echo "🔎 WSL1 environment detected."
+  log_warning "WSL1 environment detected. Some features may not work properly."
 fi
 
-# --- Determine Windows Hostname for Consistency ---
-if command -v cmd.exe >/dev/null; then
-  WIN_HOSTNAME=$(cmd.exe /c "hostname" | tr -d '\r')
-else
-  WIN_HOSTNAME="wsl-devbox"
-fi
-
-echo "📛 Using Windows hostname: $WIN_HOSTNAME"
+# Get Windows hostname
+WIN_HOSTNAME=$(get_windows_hostname)
+log_info "Using Windows hostname: $WIN_HOSTNAME"
 
 # --- Configure /etc/wsl.conf ---
 echo "📝 Writing optimized wsl.conf..."

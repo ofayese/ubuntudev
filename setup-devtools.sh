@@ -53,23 +53,11 @@ install_from_github() {
 }
 
 # Function to safely install apt packages
-safe_apt_install() {
-    local packages=("$@")
-    local failed_packages=()
-    
-    for pkg in "${packages[@]}"; do
-        if sudo apt install -y "$pkg" 2>/dev/null; then
-            echo "✅ Installed $pkg"
-        else
-            echo "⚠️ Could not install $pkg - may not be available in this Ubuntu version"
-            failed_packages+=("$pkg")
-        fi
-    done
-    
-    if [ ${#failed_packages[@]} -gt 0 ]; then
-        echo "📋 Failed to install: ${failed_packages[*]}"
-    fi
-}
+# Use shared utility functions for package installation
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-packages.sh"
+source "$SCRIPT_DIR/util-env.sh"
 
 # --- SYSTEM MONITORING TOOLS ---
 echo "📈 Installing system monitoring tools..."
@@ -92,18 +80,11 @@ else
     echo "⚠️ Starship installation failed, continuing..."
 fi
 
-# Install modern CLI tools from GitHub
-install_from_github "eza-community/eza" "x86_64-unknown-linux-gnu.tar.gz" \
-    "sudo tar -xf \$1 -C /usr/local/bin eza" "eza"
-
-install_from_github "muesli/duf" "linux_amd64.deb" \
-    "sudo apt install -y \$1" "duf"
-
-install_from_github "lsd-rs/lsd" "amd64.deb" \
-    "sudo apt install -y \$1" "lsd"
-
-install_from_github "bootandy/dust" "amd64.deb" \
-    "sudo apt install -y \$1" "dust"
+# Install modern CLI tools from GitHub using shared utility
+install_from_github "eza-community/eza" "eza_.*_amd64.deb" "sudo apt install -y \$1" "eza"
+install_from_github "muesli/duf" "linux_amd64.deb" "sudo apt install -y \$1" "duf"
+install_from_github "lsd-rs/lsd" "amd64.deb" "sudo apt install -y \$1" "lsd"
+install_from_github "bootandy/dust" "amd64.deb" "sudo apt install -y \$1" "dust"
 
 install_from_github "ClementTsang/bottom" "amd64.tar.gz" \
     "tar -xf \$1 -C /tmp btm && sudo install /tmp/btm /usr/local/bin/btm && rm -f /tmp/btm" "bottom"

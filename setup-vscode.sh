@@ -48,30 +48,11 @@ else
   # --- Install VS Code and Insiders (only on Desktop/Headless, not WSL2) ---
   echo "📦 Installing Visual Studio Code..."
 
-# Function to safely download and install VS Code
-install_vscode_variant() {
-    local variant="$1"
-    local url="$2"
-    local temp_file="/tmp/vscode-${variant}.deb"
-    
-    echo "📦 Installing VS Code $variant..."
-    if wget -q -O "$temp_file" "$url"; then
-        if sudo apt install -y "$temp_file" 2>/dev/null; then
-            echo "✅ VS Code $variant installed successfully"
-            rm -f "$temp_file"
-            return 0
-        else
-            echo "⚠️ Failed to install VS Code $variant"
-            sudo apt --fix-broken install -y 2>/dev/null || true
-            rm -f "$temp_file"
-            return 1
-        fi
-    else
-        echo "⚠️ Failed to download VS Code $variant"
-        rm -f "$temp_file"
-        return 1
-    fi
-}
+# Use shared utility functions for package installation
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-packages.sh"
+source "$SCRIPT_DIR/util-env.sh"
 
   install_vscode_variant "stable" "https://update.code.visualstudio.com/latest/linux-deb-x64/stable"
   install_vscode_variant "insiders" "https://update.code.visualstudio.com/latest/linux-deb-x64/insider"
