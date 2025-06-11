@@ -1,4 +1,30 @@
 #!/bin/bash
+# === Python Version Compatibility Fix ===
+SUPPORTED_PYTHON_VERSION="3.11.9"
+PYENV_ROOT="${HOME}/.pyenv"
+ensure_pyenv_installed() {
+  if ! command -v pyenv >/dev/null 2>&1; then
+    echo "🛠️ Installing pyenv..."
+    curl https://pyenv.run | bash
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init -)"
+  fi
+}
+install_supported_python() {
+  ensure_pyenv_installed
+  if ! pyenv versions --bare | grep -q "^${SUPPORTED_PYTHON_VERSION}$"; then
+    echo "⬇️  Installing Python ${SUPPORTED_PYTHON_VERSION} with pyenv..."
+    pyenv install -s "${SUPPORTED_PYTHON_VERSION}"
+  fi
+  pyenv global "${SUPPORTED_PYTHON_VERSION}"
+}
+# Check if supported Python present, otherwise install via pyenv
+if ! command -v python3.11 >/dev/null 2>&1; then
+  install_supported_python
+else
+  echo "✅ Supported Python version already present ($(python3.11 --version 2>&1))"
+fi
+
 set -euo pipefail
 
 LOGFILE="/var/log/ubuntu-dev-tools.log"
@@ -42,6 +68,8 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
 done
 
 # Install Node.js LTS and Current versions
+nvm alias default lts/*
+nvm use default
 echo "🔧 Installing Node.js LTS and Current versions..."
 if ! nvm install --lts; then
     echo "⚠️ Failed to install LTS, trying specific version..."
@@ -54,8 +82,6 @@ if ! nvm install node; then
 fi
 
 # Set LTS as default
-nvm alias default --lts
-nvm use --lts
 
 # Install global npm packages
 npm install -g npm@latest

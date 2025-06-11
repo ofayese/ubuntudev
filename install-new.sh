@@ -66,7 +66,6 @@ show_help() {
   echo "  --desktop             Run desktop customizations"
   echo "  --node-python         Setup Node.js and Python with version managers"
   echo "  --devtools            Install CLI dev tools, linters, shells, etc."
-  echo "  --vscode              Install VS Code, Insiders, extensions, config"
   echo "  --devcontainers       Setup Docker Desktop or containerd/devcontainers"
   echo "  --dotnet-ai           Install .NET, PowerShell, AI/ML tools"
   echo "  --lang-sdks           Install Java, Rust, Haskell (via SDKMAN, rustup, ghcup)"
@@ -90,7 +89,7 @@ install_all() {
   # Core components for all environments
   run_script "setup-node-python.sh" "Node.js and Python Setup" || failed_scripts+=("setup-node-python.sh")
   run_script "setup-devtools.sh" "Development Tools Setup" || failed_scripts+=("setup-devtools.sh")
-  run_script "setup-vscode.sh" "VS Code Setup" || failed_scripts+=("setup-vscode.sh")
+  # TODO: VS Code installation needs to be added to setup-devtools.sh or separate script
   run_script "setup-devcontainers.sh" "Container Development Setup" || failed_scripts+=("setup-devcontainers.sh")
   run_script "setup-dotnet-ai.sh" ".NET and AI Tools Setup" || failed_scripts+=("setup-dotnet-ai.sh")
   run_script "setup-lang-sdks.sh" "Language SDKs Setup" || failed_scripts+=("setup-lang-sdks.sh")
@@ -99,7 +98,7 @@ install_all() {
   
   # WSL-specific components
   if [[ "$ENV_TYPE" == "WSL2" ]]; then
-    run_script "setup-wsl.sh" "WSL2 Optimizations" || failed_scripts+=("setup-wsl.sh")
+  # WSL optimizations are handled by util-wsl.sh functions
     run_script "setup-vscommunity.sh" "Visual Studio Community Setup" || failed_scripts+=("setup-vscommunity.sh")
     run_script "validate-docker-desktop.sh" "Docker Desktop Validation" || failed_scripts+=("validate-docker-desktop.sh")
   fi
@@ -132,7 +131,7 @@ for arg in "$@"; do
     --desktop) "$SCRIPT_DIR/setup-desktop.sh" ;;
     --node-python) "$SCRIPT_DIR/setup-node-python.sh" ;;
     --devtools) "$SCRIPT_DIR/setup-devtools.sh" ;;
-    --vscode) "$SCRIPT_DIR/setup-vscode.sh" ;;
+    # TODO: VS Code functionality needs to be implemented
     --devcontainers) "$SCRIPT_DIR/setup-devcontainers.sh" ;;
     --dotnet-ai) "$SCRIPT_DIR/setup-dotnet-ai.sh" ;;
     --lang-sdks) "$SCRIPT_DIR/setup-lang-sdks.sh" ;;

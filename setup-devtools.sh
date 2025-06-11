@@ -164,3 +164,8 @@ fi
 
 echo "✅ Dev tools and shell environment successfully configured!"
 echo "🔄 Restart your terminal or run 'source ~/.zshrc' to apply changes."
+
+
+# === Dorothy Installation ===
+echo "🌸 Installing Dorothy (dotfiles manager)..."
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"

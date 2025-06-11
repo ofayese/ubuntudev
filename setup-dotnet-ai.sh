@@ -57,7 +57,8 @@ pip3 install numpy scipy pandas matplotlib seaborn scikit-learn tqdm jupyterlab 
 # CPU versions for PyTorch (safe for WSL2, headless, etc.)
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-pip3 install tensorflow keras opencv-python xgboost lightgbm catboost fastai
+python3.11 -m pip install --upgrade pip
+python3.11 -m pip install tensorflow keras opencv-python || echo "⚠️ TensorFlow skipped if wheel unavailable"
 
 # HuggingFace + Transformers
 pip3 install transformers datasets ipywidgets openai anthropic

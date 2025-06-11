@@ -43,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 ./install-new.sh --all
 
 # Or install specific components
-./install-new.sh --devtools --vscode --node-python
+./install-new.sh --devtools --node-python
 ```
 
 ## 📦 Available Components
@@ -54,7 +54,6 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 | Desktop | Desktop environment setup | `--desktop` |
 | Node & Python | Node.js and Python with version managers | `--node-python` |
 | Dev Tools | CLI dev tools, linters, shells, etc. | `--devtools` |
-| VS Code | VS Code, Insiders, extensions, config | `--vscode` |
 | Dev Containers | Docker Desktop or containerd/devcontainers | `--devcontainers` |
 | .NET & AI | .NET, PowerShell, AI/ML tools | `--dotnet-ai` |
 | Language SDKs | Java, Rust, Haskell | `--lang-sdks` |
@@ -85,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
 ```bash
 # Install only developer tools and VS Code
-./install-new.sh --devtools --vscode
+./install-new.sh --devtools
 
 # Install Node.js, Python, and container development tools
 ./install-new.sh --node-python --devcontainers
@@ -99,21 +98,12 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
 # Check installed versions
 ./validate-installation.sh
-
-# Remove legacy files (after migration)
-./cleanup-legacy-files.sh
 ```
 
 ```bash
 # Install modern CLI tools and shell enhancements
+# Note: VS Code installation needs to be added
 ./setup-devtools.sh
-```
-
-### VS Code Setup
-
-```bash
-# Install VS Code/Insiders (Desktop only) + extensions
-./setup-vscode.sh
 ```
 
 ### Node.js and Python
@@ -271,7 +261,7 @@ The scripts are designed to be idempotent - you can run them multiple times safe
 
 ```bash
 # Update individual components
-./setup-vscode.sh      # Update VS Code extensions
+./setup-devtools.sh    # TODO: Add VS Code installation
 ./setup-npm.sh --force # Force reinstall npm packages
 
 # Update container tools

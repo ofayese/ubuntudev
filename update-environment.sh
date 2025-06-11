@@ -5,7 +5,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR/util-versions.sh"
+source "$SCRIPT_DIR      --containers) update_containers ;;
+      --npm) update_npm_packages ;;
+      --python) update_python_packages ;;
+      --help) show_help; exit 0 ;;
+      *) log_error "Unknown option: $arg"; show_help; exit 1 ;;
+    esac
+  done
+fisions.sh"
 
 # Initialize logging
 init_logging
@@ -240,7 +247,6 @@ show_help() {
   echo "  --system      Update system packages only"
   echo "  --languages   Update language environments (Node.js, Python, Rust, Java)"
   echo "  --containers  Update container tools"
-  echo "  --vscode      Update VS Code extensions"
   echo "  --npm         Update npm global packages"
   echo "  --python      Update Python packages"
   echo "  --help        Show this help message"
