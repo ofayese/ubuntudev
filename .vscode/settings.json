@@ -59,5 +59,9 @@
         "*.instruction.md": "markdown",
         "wsl.conf": "ini",
         ".wslconfig": "ini"
-    }
+    },
+    "cSpell.words": [
+        "esac",
+        "pipefail"
+    ]
 }
