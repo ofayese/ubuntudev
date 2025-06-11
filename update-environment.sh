@@ -3,16 +3,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check for required utility scripts
+for util in "$SCRIPT_DIR/util-log.sh" "$SCRIPT_DIR/util-env.sh"; do
+  if [ ! -f "$util" ]; then
+    echo "[ERROR] Required utility script $util not found. Exiting." >&2
+    exit 1
+  fi
+done
+
 source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR      --containers) update_containers ;;
-      --npm) update_npm_packages ;;
-      --python) update_python_packages ;;
-      --help) show_help; exit 0 ;;
-      *) log_error "Unknown option: $arg"; show_help; exit 1 ;;
-    esac
-  done
-fisions.sh"
 
 # Initialize logging
 init_logging

@@ -1,0 +1,45 @@
+components:
+  devtools:
+    description: "Development Tools"
+    requires: []
+    script: "setup-devtools.sh"
+
+  terminal-enhancements:
+    description: "Terminal Enhancements"
+    requires: ["devtools"]
+    script: "setup-terminal-enhancements.sh"
+
+  desktop:
+    description: "Desktop Environment"
+    requires: []
+    script: "setup-desktop.sh"
+
+  devcontainers:
+    description: "Container Development"
+    requires: ["devtools"]
+    script: "setup-devcontainers.sh"
+
+  dotnet-ai:
+    description: ".NET and AI Tools"
+    requires: []
+    script: "setup-dotnet-ai.sh"
+
+  lang-sdks:
+    description: "Language SDKs"
+    requires: []
+    script: "setup-lang-sdks.sh"
+
+  vscommunity:
+    description: "VS Code Extensions"
+    requires: ["devtools"]
+    script: "setup-vscommunity.sh"
+
+  update-env:
+    description: "Environment Updates"
+    requires: []
+    script: "update-environment.sh"
+
+  validate:
+    description: "Validate Installation"
+    requires: []
+    script: "validate-installation.sh"
