@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 # util-wsl.sh - WSL-specific configuration and optimizations
+# 
+# Configures WSL2 environment for optimal development experience with:
+# - Systemd support and optimized wsl.conf settings
+# - Conditional DNS configuration (only if needed)
+# - Essential Windows path symlinks with permission-safe SSH handling
+# - Git integration with Windows Credential Manager
+# - Windows Terminal integration with improved launcher
+# - Performance optimizations including .wslconfig and I/O tuning
+#
+# Last updated: January 2025 - Aligned with Windows 11 + WSL2 best practices
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,6 +57,9 @@ appendWindowsPath = false
 hostname = ${WIN_HOSTNAME}-wsl
 generateHosts = true
 generateResolvConf = true
+
+[user]
+default = $(whoami)
 EOF
 
   log_success "Wrote optimized /etc/wsl.conf"
@@ -81,8 +94,23 @@ setup_wsl_dns() {
   
   log_info "Setting up WSL DNS configuration..."
   
-  # Configure resolv.conf with reliable DNS
-  log_info "Configuring DNS resolvers..."
+  # Check if we need custom DNS (only if current DNS is not working)
+  if nslookup github.com >/dev/null 2>&1; then
+    log_success "DNS is working correctly, no changes needed"
+    finish_logging
+    return 0
+  fi
+  
+  log_warning "DNS appears to be having issues, applying custom configuration..."
+  
+  # Disable WSL's automatic DNS generation in wsl.conf
+  if ! grep -q "generateResolvConf.*false" /etc/wsl.conf 2>/dev/null; then
+    log_info "Disabling automatic DNS generation in wsl.conf..."
+    sudo sed -i '/^\[network\]/,/^\[/ { s/generateResolvConf.*/generateResolvConf = false/; }' /etc/wsl.conf 2>/dev/null || {
+      # Add network section if it doesn't exist
+      echo -e "\n[network]\ngenerateResolvConf = false" | sudo tee -a /etc/wsl.conf > /dev/null
+    }
+  fi
   
   # Remove immutable attribute if set
   sudo chattr -i /etc/resolv.conf 2>/dev/null || true
@@ -90,6 +118,7 @@ setup_wsl_dns() {
   # Create our custom resolv.conf
   sudo tee /etc/resolv.conf > /dev/null << 'EOF'
 # Ubuntu Development Environment - Custom DNS Configuration
+# Applied due to DNS connectivity issues
 nameserver 1.1.1.1  # Cloudflare
 nameserver 8.8.8.8  # Google
 nameserver 9.9.9.9  # Quad9
@@ -98,7 +127,8 @@ EOF
   # Make it immutable to prevent WSL from overwriting it
   sudo chattr +i /etc/resolv.conf
   
-  log_success "DNS resolvers configured with Cloudflare, Google, and Quad9"
+  log_success "Custom DNS resolvers configured (Cloudflare, Google, Quad9)"
+  log_warning "WSL restart required for DNS changes to take full effect"
   finish_logging
 }
 
@@ -127,18 +157,21 @@ setup_windows_symlinks() {
   # Create Home Directory Symlinks
   log_info "Creating common Windows path symlinks..."
   
-  # Define paths to link
+  # Define essential paths to link (commonly used directories)
   local WIN_PATHS=(
     "/c/Users/$WIN_USERNAME/Desktop:$HOME/Desktop"
     "/c/Users/$WIN_USERNAME/Documents:$HOME/Documents"
     "/c/Users/$WIN_USERNAME/Downloads:$HOME/Downloads"
-    "/c/Users/$WIN_USERNAME/Pictures:$HOME/Pictures"
-    "/c/Users/$WIN_USERNAME/AppData/Local:$HOME/AppData"
     "/c/Users/$WIN_USERNAME/source:$HOME/source"
-    "/c/Users/$WIN_USERNAME/.ssh:$HOME/.windows-ssh"
   )
   
-  # Create symlinks if Windows paths exist
+  # Define optional paths (may not exist or may cause permission issues)
+  local OPTIONAL_PATHS=(
+    "/c/Users/$WIN_USERNAME/Pictures:$HOME/Pictures"
+    "/c/Users/$WIN_USERNAME/AppData/Local:$HOME/AppData"
+  )
+  
+  # Create essential symlinks
   for path_pair in "${WIN_PATHS[@]}"; do
     WIN_PATH="${path_pair%%:*}"
     WSL_PATH="${path_pair##*:}"
@@ -155,26 +188,17 @@ setup_windows_symlinks() {
     fi
   done
   
-  # Create VS Code workspace symlinks
-  log_info "Creating VS Code workspace symlinks..."
-  
-  # Create remote-containers directory for VS Code
-  mkdir -p "$HOME/.vscode-server/extensions"
-  mkdir -p "$HOME/.vscode-server-insiders/extensions"
-  
-  # Create human-readable symlinks to VS Code directories
-  local SERVER_DIR="$HOME/.vscode-server"
-  local INSIDERS_DIR="$HOME/.vscode-server-insiders"
-  
-  if [ -d "$SERVER_DIR" ]; then
-    ln -sf "$SERVER_DIR" "$HOME/vscode-stable" 2>/dev/null || true
-  fi
-  
-  if [ -d "$INSIDERS_DIR" ]; then
-    ln -sf "$INSIDERS_DIR" "$HOME/vscode-insiders" 2>/dev/null || true
-  fi
-  
-  log_success "VS Code workspace links created"
+  # Create optional symlinks (with extra checks)
+  for path_pair in "${OPTIONAL_PATHS[@]}"; do
+    WIN_PATH="${path_pair%%:*}"
+    WSL_PATH="${path_pair##*:}"
+    
+    if [ -d "$WIN_PATH" ] && [ ! -e "$WSL_PATH" ]; then
+      ln -s "$WIN_PATH" "$WSL_PATH"
+      log_success "Created optional symlink: $WSL_PATH -> $WIN_PATH"
+    fi
+  done
+  log_success "VS Code integration handled by Windows installations"
   finish_logging
 }
 
@@ -217,14 +241,6 @@ setup_windows_terminal() {
   
   log_info "Setting up Windows Terminal integration..."
   
-  # Get Windows username
-  local WIN_USERNAME
-  WIN_USERNAME=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-  
-  # Get WSL distribution name
-  local WSL_DISTRO_NAME
-  WSL_DISTRO_NAME=$(wslpath -w / 2>/dev/null | cut -d'\' -f3)
-  
   # Create a simple script to help launch Windows Terminal
   local WT_SCRIPT="$HOME/bin/wt"
   mkdir -p "$HOME/bin"
@@ -232,7 +248,11 @@ setup_windows_terminal() {
   cat > "$WT_SCRIPT" << 'EOF'
 #!/bin/bash
 # Helper to launch Windows Terminal from WSL
-cmd.exe /c start wt.exe "$@" >/dev/null 2>&1
+if command -v wt.exe >/dev/null 2>&1; then
+  wt.exe "$@" >/dev/null 2>&1 &
+else
+  cmd.exe /c start wt.exe "$@" >/dev/null 2>&1
+fi
 EOF
   
   chmod +x "$WT_SCRIPT"
@@ -242,8 +262,13 @@ EOF
     echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
   fi
   
+  # Also create an alias for launching new WSL tabs
+  if ! grep -q "alias wsl-here" "$HOME/.bashrc"; then
+    echo 'alias wsl-here="wt.exe -d ."' >> "$HOME/.bashrc"
+  fi
+  
   log_success "Windows Terminal integration configured"
-  log_info "You can now type 'wt' to launch Windows Terminal"
+  log_info "You can now type 'wt' to launch Windows Terminal or 'wsl-here' for current directory"
   
   finish_logging
 }

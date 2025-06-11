@@ -117,14 +117,16 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
 ### Ubuntu Desktop
 
-- Installs GUI applications (VS Code, LibreOffice, multimedia tools)
-- Sets up desktop environment optimizations
+- Installs GUI applications (LibreOffice, multimedia tools)
+- Sets up desktop environment optimizations  
 - Configures fonts and themes
 - VS Code Insiders set as default git editor
 
+> **Note**: For WSL2 users, install VS Code and VS Code Insiders on Windows, not inside WSL2. The Windows installations will connect to WSL2 automatically.
+
 ### Ubuntu on WSL2
 
-- Skips GUI applications
+- Skips GUI applications (install VS Code on Windows instead)
 - Applies WSL2-specific optimizations
 - Creates optimized `/etc/wsl.conf`
 - Configures Windows-WSL integration
@@ -157,11 +159,12 @@ powershell -ExecutionPolicy Bypass -File fix-line-endings.ps1
 
 ### Development Tools
 
-- **VS Code**: Stable + Insiders with curated extensions
 - **Git**: Enhanced with GitLens, advanced configuration
 - **Modern CLI**: bat, ripgrep, exa, fd, fzf, zoxide
 - **Shell**: Zsh with Oh My Zsh, Starship prompt
 - **Terminal**: tmux with plugin manager
+
+> **Note**: VS Code should be installed on Windows for WSL2 users, or locally for Desktop users.
 
 ### Desktop Applications (Ubuntu Desktop only)
 
@@ -196,7 +199,9 @@ generateResolvConf = true
 
 ## 🎨 VS Code Configuration
 
-### Installed Extensions
+> **Important**: For WSL2 users, install VS Code and VS Code Insiders on Windows. The scripts will configure Git integration to use the Windows installations.
+
+### Recommended Extensions
 
 - **Language Support**: Python, Go, C/C++, Rust, C#
 - **Containers**: Remote-Containers, Docker, SSH, WSL
@@ -211,6 +216,8 @@ generateResolvConf = true
 - Auto-save configured
 - Python/Node.js defaults
 - Dark theme with high contrast
+
+> **WSL2 Setup**: The scripts automatically configure Git to use Windows VS Code Insiders as the editor. VS Code extensions and settings are managed on the Windows side.
 
 ## 🛠️ Version Management
 
@@ -261,7 +268,7 @@ The scripts are designed to be idempotent - you can run them multiple times safe
 
 ```bash
 # Update individual components
-./setup-devtools.sh    # TODO: Add VS Code installation
+./setup-devtools.sh    # Modern CLI tools and shell setup
 ./setup-npm.sh --force # Force reinstall npm packages
 
 # Update container tools

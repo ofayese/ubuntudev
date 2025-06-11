@@ -101,8 +101,28 @@ check_command "nvm" "nvm"
 # Check development tools
 echo ""
 echo "💻 Checking Development Tools:"
-check_command "code" "VS Code"
-check_command "code-insiders" "VS Code Insiders"
+
+# Check VS Code based on environment
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    # WSL2 environment - check for Windows VS Code installations
+    echo "🔍 WSL2 detected - checking for Windows VS Code installations..."
+    if [ -f "/mnt/c/Program Files/Microsoft VS Code/bin/code.cmd" ]; then
+        echo -e "${GREEN}✅ VS Code (Windows) is accessible from WSL2${NC}"
+    else
+        echo -e "${YELLOW}⚠️ VS Code (Windows) not found - install on Windows for WSL2 integration${NC}"
+    fi
+    
+    if [ -f "/mnt/c/Program Files/Microsoft VS Code Insiders/bin/code-insiders.cmd" ]; then
+        echo -e "${GREEN}✅ VS Code Insiders (Windows) is accessible from WSL2${NC}"
+    else
+        echo -e "${YELLOW}⚠️ VS Code Insiders (Windows) not found - install on Windows for WSL2 integration${NC}"
+    fi
+else
+    # Desktop environment - check for local installations
+    check_command "code" "VS Code"
+    check_command "code-insiders" "VS Code Insiders"
+fi
+
 check_command "docker" "Docker"
 check_command "gh" "GitHub CLI"
 

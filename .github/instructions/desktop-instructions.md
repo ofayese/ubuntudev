@@ -3,5 +3,5 @@ applyTo: "**/*.sh"
 ---
 When running on native desktop:
 
-- Use GUI-friendly editors (VS Code installation needs to be added to codebase).
+- Install VS Code locally on Ubuntu Desktop (not needed for WSL2).
 - Expand `.desktop` integration or symlinks if necessary.

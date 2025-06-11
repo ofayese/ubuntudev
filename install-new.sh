@@ -89,7 +89,7 @@ install_all() {
   # Core components for all environments
   run_script "setup-node-python.sh" "Node.js and Python Setup" || failed_scripts+=("setup-node-python.sh")
   run_script "setup-devtools.sh" "Development Tools Setup" || failed_scripts+=("setup-devtools.sh")
-  # TODO: VS Code installation needs to be added to setup-devtools.sh or separate script
+  # VS Code should be installed on Windows (for WSL2) or locally (for Desktop)
   run_script "setup-devcontainers.sh" "Container Development Setup" || failed_scripts+=("setup-devcontainers.sh")
   run_script "setup-dotnet-ai.sh" ".NET and AI Tools Setup" || failed_scripts+=("setup-dotnet-ai.sh")
   run_script "setup-lang-sdks.sh" "Language SDKs Setup" || failed_scripts+=("setup-lang-sdks.sh")
@@ -131,7 +131,7 @@ for arg in "$@"; do
     --desktop) "$SCRIPT_DIR/setup-desktop.sh" ;;
     --node-python) "$SCRIPT_DIR/setup-node-python.sh" ;;
     --devtools) "$SCRIPT_DIR/setup-devtools.sh" ;;
-    # TODO: VS Code functionality needs to be implemented
+    # VS Code should be installed on Windows for WSL2 users
     --devcontainers) "$SCRIPT_DIR/setup-devcontainers.sh" ;;
     --dotnet-ai) "$SCRIPT_DIR/setup-dotnet-ai.sh" ;;
     --lang-sdks) "$SCRIPT_DIR/setup-lang-sdks.sh" ;;
