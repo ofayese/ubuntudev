@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== [validate-installation.sh] Started at $(date) ==="
+# Source utility modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-env.sh" 
+source "$SCRIPT_DIR/util-install.sh"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Initialize logging
+init_logging
+log_info "Installation validation started"
 
-# Function to check if a command exists
+# Function to check if a command exists (using util-env.sh function)
 check_command() {
     local cmd="$1"
     local description="$2"
     
-    if command -v "$cmd" >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ $description ($cmd)${NC}"
+    if command_exists "$cmd"; then
+        log_success "$description ($cmd)"
         return 0
     else
-        echo -e "${RED}❌ $description ($cmd) not found${NC}"
+        log_error "$description ($cmd) not found"
         return 1
     fi
 }
@@ -29,36 +31,36 @@ check_service() {
     local description="$2"
     
     if systemctl is-active --quiet "$service" 2>/dev/null; then
-        echo -e "${GREEN}✅ $description service is running${NC}"
+        log_success "$description service is running"
         return 0
     else
-        echo -e "${YELLOW}⚠️ $description service is not running${NC}"
+        log_warning "$description service is not running"
         return 1
     fi
 }
 
-# Function to check Python packages
+# Function to check Python packages (using util-install.sh function)
 check_python_package() {
     local package="$1"
     
-    if python -c "import $package" 2>/dev/null; then
-        echo -e "${GREEN}✅ Python package: $package${NC}"
+    if is_pip_installed "$package"; then
+        log_success "Python package: $package"
         return 0
     else
-        echo -e "${RED}❌ Python package: $package not found${NC}"
+        log_error "Python package: $package not found"
         return 1
     fi
 }
 
-# Function to check Node.js packages
+# Function to check Node.js packages (using util-install.sh function)
 check_node_package() {
     local package="$1"
     
-    if npm list -g "$package" >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Node.js package: $package${NC}"
+    if is_npm_global_installed "$package"; then
+        log_success "Node.js package: $package"
         return 0
     else
-        echo -e "${RED}❌ Node.js package: $package not found${NC}"
+        log_error "Node.js package: $package not found"
         return 1
     fi
 }
@@ -102,20 +104,21 @@ check_command "nvm" "nvm"
 echo ""
 echo "💻 Checking Development Tools:"
 
-# Check VS Code based on environment
-if grep -qi microsoft /proc/version 2>/dev/null; then
+# Check VS Code based on environment (using detect_environment function)
+ENV_TYPE=$(detect_environment)
+if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
     # WSL2 environment - check for Windows VS Code installations
-    echo "🔍 WSL2 detected - checking for Windows VS Code installations..."
+    log_info "WSL2 detected - checking for Windows VS Code installations..."
     if [ -f "/mnt/c/Program Files/Microsoft VS Code/bin/code.cmd" ]; then
-        echo -e "${GREEN}✅ VS Code (Windows) is accessible from WSL2${NC}"
+        log_success "VS Code (Windows) is accessible from WSL2"
     else
-        echo -e "${YELLOW}⚠️ VS Code (Windows) not found - install on Windows for WSL2 integration${NC}"
+        log_warning "VS Code (Windows) not found - install on Windows for WSL2 integration"
     fi
     
     if [ -f "/mnt/c/Program Files/Microsoft VS Code Insiders/bin/code-insiders.cmd" ]; then
-        echo -e "${GREEN}✅ VS Code Insiders (Windows) is accessible from WSL2${NC}"
+        log_success "VS Code Insiders (Windows) is accessible from WSL2"
     else
-        echo -e "${YELLOW}⚠️ VS Code Insiders (Windows) not found - install on Windows for WSL2 integration${NC}"
+        log_warning "VS Code Insiders (Windows) not found - install on Windows for WSL2 integration"
     fi
 else
     # Desktop environment - check for local installations
@@ -126,15 +129,15 @@ fi
 check_command "docker" "Docker"
 check_command "gh" "GitHub CLI"
 
-# Check container tools
+# Check container tools (using Docker functions from util-install.sh)
 echo ""
 echo "🐳 Checking Container Tools:"
 check_command "docker" "Docker CLI"
-if command -v docker >/dev/null 2>&1; then
-    if docker info >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Docker daemon is accessible${NC}"
+if command_exists docker; then
+    if check_docker >/dev/null 2>&1; then
+        log_success "Docker daemon is accessible"
     else
-        echo -e "${RED}❌ Docker daemon is not accessible${NC}"
+        log_error "Docker daemon is not accessible"
     fi
 fi
 
@@ -174,51 +177,51 @@ fi
 echo ""
 echo "🐚 Checking Shell Configuration:"
 if [ -f "$HOME/.zshrc" ]; then
-    echo -e "${GREEN}✅ .zshrc exists${NC}"
+    log_success ".zshrc exists"
     if grep -q "starship" "$HOME/.zshrc"; then
-        echo -e "${GREEN}✅ Starship configured in .zshrc${NC}"
+        log_success "Starship configured in .zshrc"
     else
-        echo -e "${YELLOW}⚠️ Starship not configured in .zshrc${NC}"
+        log_warning "Starship not configured in .zshrc"
     fi
 else
-    echo -e "${RED}❌ .zshrc not found${NC}"
+    log_error ".zshrc not found"
 fi
 
 # Check Git configuration
 echo ""
 echo "🔧 Checking Git Configuration:"
 if git config --global --get user.name >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Git user.name configured: $(git config --global --get user.name)${NC}"
+    log_success "Git user.name configured: $(git config --global --get user.name)"
 else
-    echo -e "${RED}❌ Git user.name not configured${NC}"
+    log_error "Git user.name not configured"
 fi
 
 if git config --global --get user.email >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Git user.email configured: $(git config --global --get user.email)${NC}"
+    log_success "Git user.email configured: $(git config --global --get user.email)"
 else
-    echo -e "${RED}❌ Git user.email not configured${NC}"
+    log_error "Git user.email not configured"
 fi
 
-# Check WSL-specific configuration
-if grep -qi microsoft /proc/version 2>/dev/null; then
+# Check WSL-specific configuration (using detect_environment function)
+if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
     echo ""
     echo "🧠 Checking WSL Configuration:"
     
     if [ -f "/etc/wsl.conf" ]; then
-        echo -e "${GREEN}✅ /etc/wsl.conf exists${NC}"
+        log_success "/etc/wsl.conf exists"
         if grep -q "systemd=true" /etc/wsl.conf; then
-            echo -e "${GREEN}✅ systemd enabled in WSL${NC}"
+            log_success "systemd enabled in WSL"
         else
-            echo -e "${YELLOW}⚠️ systemd not enabled in WSL${NC}"
+            log_warning "systemd not enabled in WSL"
         fi
     else
-        echo -e "${RED}❌ /etc/wsl.conf not found${NC}"
+        log_error "/etc/wsl.conf not found"
     fi
     
-    if pidof systemd >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ systemd is running${NC}"
+    if is_systemd_running; then
+        log_success "systemd is running"
     else
-        echo -e "${RED}❌ systemd is not running${NC}"
+        log_error "systemd is not running"
     fi
 fi
 

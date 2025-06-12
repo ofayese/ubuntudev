@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOGFILE="/var/log/ubuntu-dev-tools.log"
-exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== [setup-desktop.sh] Started at $(date) ==="
-
 # Use shared utility functions for package installation and GitHub downloads
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/util-log.sh"
-source "$SCRIPT_DIR/util-packages.sh"
+source "$SCRIPT_DIR/util-install.sh"
 source "$SCRIPT_DIR/util-env.sh"
+
+# Initialize logging
+init_logging
+log_info "Desktop setup started"
+
 # --- Safe install function ---
 safe_install() {
   safe_apt_install "$@"
 }
 
-# --- Safe install .deb function ---
-safe_install_deb() {
-  safe_install_deb_package "$1" "${2:-}"
+# --- Safe install .deb function (wrapper for compatibility) ---
+install_deb_from_url() {
+  safe_install_deb "$1" "${2:-}"
 }
 
 # --- Detect headless environments ---

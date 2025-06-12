@@ -1,39 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOGFILE="/var/log/ubuntu-dev-tools.log"
-exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== [setup-terminal-enhancements.sh] Started at $(date) ==="
+# Source utility modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-env.sh"
+source "$SCRIPT_DIR/util-install.sh"
+
+# Initialize logging
+init_logging
+log_info "Terminal enhancements setup started"
 
 # --- Install Alacritty + Fonts ---
-echo "🖥️ Installing Alacritty + JetBrains Mono..."
+log_info "Installing Alacritty + JetBrains Mono..."
 
-# Try to add the PPA, but don't fail if it doesn't work
-if sudo add-apt-repository -y ppa:aslatter/ppa 2>/dev/null; then
-    echo "✅ Added Alacritty PPA"
-else
-    echo "⚠️ Could not add Alacritty PPA, trying from default repos..."
-fi
+# Try to add the PPA using consolidated function
+safe_add_apt_repository "ppa:aslatter/ppa" "Alacritty PPA"
 
-sudo apt update || echo "⚠️ apt update failed, continuing..."
-
-# Install packages with error handling
+# Install packages using consolidated function
 packages_to_install=(fonts-jetbrains-mono fonts-firacode neofetch)
 optional_packages=(alacritty)
 
-for pkg in "${packages_to_install[@]}"; do
-    if sudo apt install -y "$pkg" 2>/dev/null; then
-        echo "✅ Installed $pkg"
-    else
-        echo "⚠️ Could not install $pkg"
-    fi
-done
+safe_apt_install "${packages_to_install[@]}"
 
+# Try optional packages individually
 for pkg in "${optional_packages[@]}"; do
-    if sudo apt install -y "$pkg" 2>/dev/null; then
-        echo "✅ Installed $pkg"
+    if safe_apt_install "$pkg"; then
+        log_success "Installed optional package: $pkg"
     else
-        echo "⚠️ Could not install $pkg, may not be available"
+        log_warning "Could not install optional package: $pkg"
     fi
 done
 
@@ -183,34 +178,32 @@ fi
 # --- Auto-switch to Zsh ---
 CURRENT_SHELL=$(basename "$SHELL")
 if [ "$CURRENT_SHELL" != "zsh" ]; then
-  echo "💡 Changing default shell to zsh..."
+  log_info "Changing default shell to zsh..."
   chsh -s "$(command -v zsh)" "$USER"
 fi
 
 # --- PowerShell Integration ---
-if command -v pwsh >/dev/null 2>&1; then
+if command_exists pwsh; then
+  log_info "Setting up PowerShell profile..."
   mkdir -p ~/.config/powershell
   cat > ~/.config/powershell/Microsoft.PowerShell_profile.ps1 <<'EOF'
 Invoke-Expression (&starship init powershell)
 if (Get-Command neofetch -ErrorAction SilentlyContinue) { neofetch }
 EOF
-  echo "✅ PowerShell profile updated."
+  log_success "PowerShell profile updated"
 fi
 
-# --- Git Best Practice ---
-echo "🔧 Configuring Git..."
-
-# Git configuration is handled in setup-devtools.sh
-echo "🔄 Skip Git configuration here to avoid redundancy"
+# --- Git configuration is handled in setup-devtools.sh ---
+log_info "Git configuration is handled in setup-devtools.sh to avoid redundancy"
 
 # --- Manual Terminal Tips ---
-echo ""
-echo "📋 Manual Terminal Tips:"
-echo "• iTerm2: Set Zsh login shell, Nerd Font, 256-color"
-echo "• Windows Terminal: profile -> commandLine: 'zsh' or 'tmux', font: JetBrains Mono Nerd Font"
-echo "• VS Code: set 'terminal.integrated.defaultProfile.linux': 'zsh'"
-echo ""
+log_info "Manual Terminal Tips:"
+log_info "• iTerm2: Set Zsh login shell, Nerd Font, 256-color"
+log_info "• Windows Terminal: profile -> commandLine: 'zsh' or 'tmux', font: JetBrains Mono Nerd Font"
+log_info "• VS Code: set 'terminal.integrated.defaultProfile.linux': 'zsh'"
 
-echo "✅ Terminal enhancements complete!"
-echo "🎨 Starship configuration installed."
-echo "🔄 Restart your shell to see the effects."
+log_success "Terminal enhancements complete!"
+log_success "Starship configuration installed."
+log_info "Restart your shell to see the effects."
+
+finish_logging

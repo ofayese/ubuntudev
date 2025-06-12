@@ -1,48 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== [validate-docker-desktop.sh] Started at $(date) ==="
+# Source utility modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/util-log.sh"
+source "$SCRIPT_DIR/util-env.sh"
+source "$SCRIPT_DIR/util-install.sh"
 
-# --- Check Docker CLI ---
-if ! command -v docker >/dev/null 2>&1; then
-  echo "❌ Docker CLI is not installed in this environment."
+# Initialize logging
+init_logging
+log_info "Docker Desktop validation started"
+
+# Check Docker availability using consolidated function
+if ! check_docker; then
+  log_error "Docker validation failed"
+  log_info "Please start Docker Desktop and ensure WSL2 integration is enabled"
+  finish_logging
   exit 1
 fi
 
-# --- Check Docker Daemon ---
-if ! docker info >/dev/null 2>&1; then
-  echo "❌ Docker daemon is not running or not accessible."
-  echo "👉 Please start Docker Desktop (Windows/Linux) and ensure WSL2 integration is enabled."
-  exit 1
-else
-  echo "✅ Docker daemon is running and accessible."
-fi
-
-# --- Check Docker context (for WSL2) ---
-if grep -qi microsoft /proc/version; then
-  echo "🔍 Checking Docker context in WSL2..."
-
-  CONTEXT=$(docker context show)
-  if [[ "$CONTEXT" != "default" && "$CONTEXT" != *"wsl"* ]]; then
-    echo "⚠️  Unexpected Docker context: $CONTEXT"
-    echo "👉 Use 'docker context use default' or ensure WSL integration is active in Docker Desktop."
+# Check WSL Docker integration
+ENV_TYPE=$(detect_environment)
+if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
+  log_info "Checking WSL2 Docker integration..."
+  
+  if ! check_wsl_docker_integration; then
+    log_error "WSL Docker integration validation failed"
+    finish_logging
     exit 1
-  else
-    echo "✅ Docker context: $CONTEXT (WSL-compatible)"
   fi
-fi
-
-# --- Check systemd (for WSL2) ---
-if grep -qi microsoft /proc/version; then
-  echo "🔍 Checking systemd status in WSL2..."
-
-  if pidof systemd >/dev/null 2>&1 && systemctl is-system-running --quiet; then
-    echo "✅ systemd is running inside WSL2."
+  
+  # Check systemd status in WSL2
+  log_info "Checking systemd status in WSL2..."
+  if is_systemd_running; then
+    log_success "systemd is running inside WSL2"
   else
-    echo "❌ systemd is not running inside WSL2."
-    echo "👉 Ensure you have 'systemd=true' under [boot] in /etc/wsl.conf and restart WSL."
+    log_error "systemd is not running inside WSL2"
+    log_info "Ensure you have 'systemd=true' under [boot] in /etc/wsl.conf and restart WSL"
+    finish_logging
     exit 1
   fi
 fi
 
-echo "✅ All checks passed! Docker Desktop with WSL2/systemd is ready."
+log_success "All checks passed! Docker Desktop with WSL2/systemd is ready"
+finish_logging

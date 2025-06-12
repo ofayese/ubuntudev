@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR/util-packages.sh"
+source "$SCRIPT_DIR/util-install.sh"
 
 # --- Detect Docker Desktop or Docker Engine ---
 detect_docker() {
