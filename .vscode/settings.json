@@ -22,7 +22,8 @@
     "github.copilot.chat.languageContext.typescript.enabled": true,
     "github.copilot.chat.localeOverride": "en",
     "github.copilot.chat.welcomeMessage": "always",
-      // Instruction and Prompt Files Configuration
+    
+    // Instruction and Prompt Files Configuration
     "chat.promptFiles": true,
     "chat.promptFilesLocations": {
         ".github/prompts": true
@@ -41,6 +42,14 @@
         "comments": "on",
         "strings": "on"
     },
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": true,
+    "editor.minimap.enabled": true,
+    "editor.renderWhitespace": "selection",
+    "editor.rulers": [80, 120],
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "editor.formatOnType": true,
     
     // Inline Chat Settings
     "inlineChat.enableV2": true,
@@ -63,5 +72,12 @@
     "cSpell.words": [
         "esac",
         "pipefail"
-    ]
+    ],
+    
+    // Window and workspace settings
+    "window.zoomLevel": 0,
+    "workbench.editor.enablePreview": true,
+    "workbench.editor.enablePreviewFromQuickOpen": true,
+    "workbench.editor.highlightModifiedTabs": true,
+    "workbench.editor.showTabs": true
 }

@@ -12,6 +12,9 @@ LOGFILE="${HOME}/.cache/ubuntu-dev-tools.log"
 mkdir -p "$(dirname "$LOGFILE")"
 init_logging "$LOGFILE"
 
+# Set up error handling - disable automatic exit on error and handle manually
+set +e  # Don't exit on errors, handle them manually
+
 # Define installation steps for progress tracking
 declare -a INSTALL_STEPS=(
   "update_package_index"
@@ -73,7 +76,7 @@ show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing CLI utilities"
 
 # Install packages individually with error tolerance
-cli_packages=(bat fzf ripgrep)
+cli_packages=(bat fzf ripgrep git wget curl)
 failed_cli=()
 
 for pkg in "${cli_packages[@]}"; do
@@ -120,21 +123,35 @@ start_spinner "Installing eza from GitHub"
 if command -v eza &> /dev/null; then
   log_info "eza is already installed, skipping..."
 else
-  log_info "Attempting to install eza from GitHub..."
+  log_info "Attempting to install eza..."
   
-  # Try to install eza with error handling
-  if install_from_github "eza-community/eza" "_amd64.deb" "sudo dpkg -i {}" "eza" 2>/dev/null; then
-    log_success "eza installed successfully from GitHub"
+  # First try installing from apt (available in newer Ubuntu/Debian)
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y eza >/dev/null 2>&1; then
+    log_success "eza installed successfully via apt"
   else
-    log_warning "Failed to install eza from GitHub. Creating alias to ls instead."
-    # Ensure .bashrc exists and add the alias
-    touch "$HOME/.bashrc"
-    if ! grep -q 'alias eza=' "$HOME/.bashrc"; then
-      echo 'alias eza="ls --color=auto"' >> "$HOME/.bashrc"
-    fi
-    # Also try installing via apt as fallback
-    if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y eza >/dev/null 2>&1; then
-      log_success "eza installed via apt as fallback"
+    log_info "eza not available via apt, trying binary download..."
+    
+    # Try downloading the binary version from GitHub
+    temp_dir="/tmp/eza_install_$$"
+    mkdir -p "$temp_dir"
+    
+    if wget -q -O "$temp_dir/eza.tar.gz" "https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz"; then
+      log_info "Downloaded eza binary, installing..."
+      if (cd "$temp_dir" && tar -xzf eza.tar.gz && sudo install -m 755 eza /usr/local/bin/eza); then
+        log_success "eza installed successfully from binary"
+        rm -rf "$temp_dir"
+      else
+        log_warning "Failed to install eza binary"
+        rm -rf "$temp_dir"
+      fi
+    else
+      log_warning "Failed to download eza binary. Creating alias to ls instead."
+      # Ensure .bashrc exists and add the alias
+      touch "$HOME/.bashrc"
+      if ! grep -q 'alias eza=' "$HOME/.bashrc"; then
+        echo 'alias eza="ls --color=auto"' >> "$HOME/.bashrc"
+      fi
+      log_info "eza alias created, will use ls with color output"
     fi
   fi
 fi
@@ -154,7 +171,7 @@ if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zsh >/dev/null 2>&1; t
   # Install Oh-My-Zsh if not already present
   if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
     log_info "Installing Oh-My-Zsh..."
-    if RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(wget -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" >/dev/null 2>&1; then
+    if timeout 60 sh -c "RUNZSH=no CHSH=no KEEP_ZSHRC=yes $(wget --timeout=30 -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" >/dev/null 2>&1; then
       log_success "Oh-My-Zsh installed successfully"
     else
       log_warning "Failed to install Oh-My-Zsh, but zsh is available"
@@ -177,5 +194,19 @@ if [ $total_failed -gt 0 ]; then
   log_info "You can manually install missing packages later if needed"
 fi
 
+# Verify critical tools are available
+critical_missing=()
+command -v wget >/dev/null || critical_missing+=("wget")
+command -v curl >/dev/null || critical_missing+=("curl")
+command -v git >/dev/null || critical_missing+=("git")
+
+if [ ${#critical_missing[@]} -gt 0 ]; then
+  log_error "Critical tools missing: ${critical_missing[*]}"
+  log_error "DevTools setup failed - essential tools not available"
+  finish_logging
+  exit 1
+fi
+
+log_success "All critical development tools are available"
 finish_logging
 exit 0
