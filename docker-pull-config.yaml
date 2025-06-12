@@ -1,0 +1,147 @@
+# docker-pull-config.yaml
+# Configuration file for docker-pull-essentials.sh
+# Version: 1.1.0
+# Last updated: 2025-06-11
+
+# Global settings
+settings:
+  timeout: 300        # Timeout per image in seconds
+  retries: 2          # Number of retry attempts
+  parallel: 4         # Number of parallel workers
+  log_file: "docker-pull.log"
+  skip_ai: false      # Skip AI/ML models
+  skip_windows: false # Skip Windows-specific images
+
+# Image categories to pull
+# Set enabled: false to skip entire categories
+categories:
+  base_os:
+    enabled: true
+    description: "Essential base operating system images"
+    images:
+      - "ubuntu:latest"
+      - "debian:latest"
+      - "alpine:latest"
+
+  programming_languages:
+    enabled: true
+    description: "Programming language runtimes"
+    images:
+      - "python:latest"
+      - "node:latest"
+      - "openjdk:latest"
+      - "golang:latest"
+      - "ruby:latest"
+      - "php:latest"
+
+  databases:
+    enabled: true
+    description: "Database systems"
+    images:
+      - "postgres:latest"
+      - "mysql:latest"
+      - "mariadb:latest"
+      - "mongo:latest"
+      - "redis:latest"
+      - "redis/redis-stack:latest"
+      - "pgvector/pgvector:latest"
+      - "myscale/myscaledb:latest"
+
+  devcontainers:
+    enabled: true
+    description: "Development container images"
+    images:
+      - "mcr.microsoft.com/devcontainers/universal:latest"
+      - "mcr.microsoft.com/devcontainers/base:ubuntu-24.04"
+      - "mcr.microsoft.com/devcontainers/python:3"
+      - "mcr.microsoft.com/devcontainers/javascript-node:latest"
+
+  microsoft_dotnet:
+    enabled: true
+    description: "Microsoft .NET and related images"
+    images:
+      - "mcr.microsoft.com/dotnet/sdk:9.0"
+      - "mcr.microsoft.com/dotnet/aspnet:9.0"
+      - "mcr.microsoft.com/dotnet/runtime:9.0"
+      - "mcr.microsoft.com/dotnet/framework/aspnet:4.8.1"
+      - "mcr.microsoft.com/dotnet/framework/runtime:4.8.1"
+      - "mcr.microsoft.com/powershell:latest"
+      - "mcr.microsoft.com/azure-powershell:ubuntu-22.04"
+
+  powershell_test_deps:
+    enabled: true
+    description: "PowerShell test dependencies"
+    images:
+      - "mcr.microsoft.com/powershell/test-deps:debian-12"
+      - "mcr.microsoft.com/powershell/test-deps:lts-ubuntu-22.04"
+      - "mcr.microsoft.com/powershell/test-deps:preview-alpine-3.16"
+      - "mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04"
+      - "mcr.microsoft.com/powershell:preview-alpine-3.20"
+
+  web_servers:
+    enabled: true
+    description: "Web servers and proxies"
+    images:
+      - "nginx:latest"
+      - "httpd:latest"
+      - "caddy:latest"
+      - "haproxy:latest"
+
+  devops_tools:
+    enabled: true
+    description: "DevOps and CI/CD tools"
+    images:
+      - "docker:latest"
+      - "registry:latest"
+      - "portainer/portainer-ce:latest"
+      - "containrrr/watchtower:latest"
+      - "bitnami/kubectl:latest"
+      - "grafana/grafana:latest"
+      - "sonarqube:latest"
+      - "jenkins/jenkins:lts-jdk17"
+
+  ai_ml:
+    enabled: true
+    description: "AI/ML models and tools"
+    images:
+      - "ai/llama3.2:latest"
+      - "ai/mistral:latest"
+      - "ai/deepcoder-preview"
+    models:
+      - "ai/smollm2:latest"
+      - "ai/llama3.3:latest"
+      - "ai/phi4:latest"
+      - "ai/qwen2.5:latest"
+      - "ai/mxbai-embed-large:latest"
+
+  utilities:
+    enabled: true
+    description: "General utility images"
+    images:
+      - "curlimages/curl:latest"
+      - "influxdb:latest"
+      - "vault:latest"
+      - "consul:latest"
+      - "elasticsearch:latest"
+      - "maven:latest"
+
+  windows_specific:
+    enabled: false
+    description: "Windows-specific images (disable for WSL2)"
+    images:
+      - "mcr.microsoft.com/windows/server:ltsc2022"
+      - "mcr.microsoft.com/windows/nanoserver:ltsc2025"
+
+# Environment-specific overrides
+environments:
+  wsl2:
+    skip_windows: true
+    parallel: 2  # Lower parallel count for WSL2
+  
+  native_linux:
+    skip_windows: false
+    parallel: 8  # Higher parallel count for native Linux
+  
+  ci_cd:
+    timeout: 600  # Longer timeout for CI/CD environments
+    retries: 3

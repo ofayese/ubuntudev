@@ -9,16 +9,23 @@ COMPONENTS=()
 
 load_dependencies() {
   local yaml="$1"
-  local comp
+  local comp=""
   while IFS= read -r line; do
     line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" || "$line" == \#* ]] && continue
     if [[ "$line" =~ ^([A-Za-z0-9_-]+):$ ]]; then
-      comp="${BASH_REMATCH[1]}"; COMPONENTS+=("$comp"); REQUIRES["$comp"]=""
-    elif [[ -n "$comp" ]]; then
-      [[ "$line" =~ ^requires:\ *(.*)$ ]]   && REQUIRES["$comp"]="${BASH_REMATCH[1]//,/ }"
-      [[ "$line" =~ ^script:\ *(.*)$ ]]     && SCRIPTS["$comp"]="${BASH_REMATCH[1]//"/}"
-      [[ "$line" =~ ^description:\ *(.*)$ ]]&& DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]//"/}"
+      comp="${BASH_REMATCH[1]}"
+      COMPONENTS+=("$comp")
+      REQUIRES["$comp"]=""
+    fi
+    if [[ -n "$comp" ]]; then
+      if [[ "$line" =~ ^requires:\ *(.*)$ ]]; then
+        REQUIRES["$comp"]="${BASH_REMATCH[1]//,/ }"
+      elif [[ "$line" =~ ^script:\ *(.*)$ ]]; then
+        SCRIPTS["$comp"]="${BASH_REMATCH[1]//\"/}"
+      elif [[ "$line" =~ ^description:\ *(.*)$ ]]; then
+        DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]//\"/}"
+      fi
     fi
   done < "$yaml"
   for c in "${COMPONENTS[@]}"; do
@@ -46,9 +53,9 @@ print_dependency_graph() {
   echo "digraph G {"
   for c in "${COMPONENTS[@]}"; do
     if [[ -z "${REQUIRES[$c]}" ]]; then
-      echo "  "$c";"
+      echo "  $c;"
     else
-      for d in ${REQUIRES[$c]}; do echo "  "$d" -> "$c";"; done
+      for d in ${REQUIRES[$c]}; do echo "  $d -> $c;"; done
     fi
   done
   echo "}"
