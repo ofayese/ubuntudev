@@ -302,15 +302,16 @@ check_wsl_docker_integration() {
 install_component() {
   local script="$1"
   local description="$2"
+  local script_dir="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
   local script_path
   
   # Resolve script path
   if [[ -f "$script" ]]; then
     script_path="$script"
-  elif [[ -f "$SCRIPT_DIR/$script" ]]; then
-    script_path="$SCRIPT_DIR/$script"
+  elif [[ -f "$script_dir/$script" ]]; then
+    script_path="$script_dir/$script"
   else
-    log_error "Component script not found: $script"
+    log_error "Component script not found: $script (looked in: $script_dir)"
     return 1
   fi
   

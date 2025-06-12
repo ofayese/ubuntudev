@@ -106,7 +106,7 @@ for comp in "${ordered[@]}"; do
   log_info "[$current_step/${#ordered[@]}] Installing: $desc"
   show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
   
-  install_component "$script" "$desc" || { failed+=("$comp"); for d in ${DEPENDENTS[$comp]}; do skip["$d"]=1; done; }
+  install_component "$script" "$desc" "$SCRIPT_DIR" || { failed+=("$comp"); for d in ${DEPENDENTS[$comp]}; do skip["$d"]=1; done; }
   mark_done "$comp"
 done
 

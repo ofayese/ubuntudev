@@ -19,24 +19,50 @@ export REQUIRES DEPENDENTS SCRIPTS DESCRIPTIONS COMPONENTS
 load_dependencies() {
   local yaml="$1"
   local comp=""
+  local in_components=false
+  
   while IFS= read -r line; do
     line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" || "$line" == \#* ]] && continue
-    if [[ "$line" =~ ^([A-Za-z0-9_-]+):$ ]]; then
-      comp="${BASH_REMATCH[1]}"
-      COMPONENTS+=("$comp")
-      REQUIRES["$comp"]=""
+    
+    # Check if we're entering the components section
+    if [[ "$line" == "components:" ]]; then
+      in_components=true
+      continue
     fi
-    if [[ -n "$comp" ]]; then
-      if [[ "$line" =~ ^requires:\ *(.*)$ ]]; then
-        REQUIRES["$comp"]="${BASH_REMATCH[1]//,/ }"
-      elif [[ "$line" =~ ^script:\ *(.*)$ ]]; then
-        SCRIPTS["$comp"]="${BASH_REMATCH[1]//\"/}"
-      elif [[ "$line" =~ ^description:\ *(.*)$ ]]; then
-        DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]//\"/}"
+    
+    # Only process lines within the components section
+    if [[ "$in_components" == true ]]; then
+      # Check for component name (indented with 2 spaces)
+      if [[ "$line" =~ ^[[:space:]]{2}([A-Za-z0-9_-]+):$ ]]; then
+        comp="${BASH_REMATCH[1]}"
+        COMPONENTS+=("$comp")
+        REQUIRES["$comp"]=""
+        SCRIPTS["$comp"]=""
+        DESCRIPTIONS["$comp"]=""
+      fi
+      
+      # Process component properties (indented with 4+ spaces)
+      if [[ -n "$comp" ]]; then
+        if [[ "$line" =~ ^[[:space:]]{4,}requires:[[:space:]]*\[(.*)\]$ ]]; then
+          # Handle array format: requires: ["item1", "item2"]
+          local req_list="${BASH_REMATCH[1]}"
+          req_list="${req_list//\"/}"  # Remove quotes
+          req_list="${req_list//,/ }" # Replace commas with spaces
+          REQUIRES["$comp"]="$req_list"
+        elif [[ "$line" =~ ^[[:space:]]{4,}requires:[[:space:]]*(.*)$ ]]; then
+          # Handle simple format: requires: item
+          REQUIRES["$comp"]="${BASH_REMATCH[1]//\"/}"
+        elif [[ "$line" =~ ^[[:space:]]{4,}script:[[:space:]]*\"?([^\"]+)\"?$ ]]; then
+          SCRIPTS["$comp"]="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^[[:space:]]{4,}description:[[:space:]]*\"([^\"]+)\"$ ]]; then
+          DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]}"
+        fi
       fi
     fi
   done < "$yaml"
+  
+  # Build dependents mapping
   for c in "${COMPONENTS[@]}"; do
     for d in ${REQUIRES[$c]}; do DEPENDENTS["$d"]+="$c "; done
   done

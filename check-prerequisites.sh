@@ -87,8 +87,11 @@ else
     fi
 fi
 
-# Check available disk space (minimum 5GB recommended)
-log_info "Checking available disk space..."
+# Check 5: Available disk space
+((current_check++))
+log_info "[$current_check/$total_checks] Checking available disk space..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 AVAILABLE_SPACE_GB=$(get_available_disk)
 
 if [[ "$AVAILABLE_SPACE_GB" -ge 5 ]]; then
@@ -97,8 +100,11 @@ else
     log_warning "Low disk space: ${AVAILABLE_SPACE_GB}GB available (5GB+ recommended)"
 fi
 
-# Check for essential commands
-log_info "Checking essential commands..."
+# Check 6: Essential commands
+((current_check++))
+log_info "[$current_check/$total_checks] Checking essential commands..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 ESSENTIAL_COMMANDS=("curl" "wget" "git" "sudo" "bc")
 
 for cmd in "${ESSENTIAL_COMMANDS[@]}"; do
@@ -110,8 +116,11 @@ for cmd in "${ESSENTIAL_COMMANDS[@]}"; do
     fi
 done
 
-# Check if apt can be updated
-log_info "Testing apt update..."
+# Check 7: APT functionality
+((current_check++))
+log_info "[$current_check/$total_checks] Testing apt update..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 if sudo apt update >/dev/null 2>&1; then
     log_success "apt update successful"
 else
@@ -119,8 +128,11 @@ else
     PREREQUISITES_MET=false
 fi
 
-# Environment detection
-log_info "Environment detection..."
+# Check 8: Environment detection
+((current_check++))
+log_info "[$current_check/$total_checks] Environment detection..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 ENV_TYPE=$(detect_environment)
 
 if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
@@ -145,7 +157,11 @@ else
     log_success "Headless environment detected"
 fi
 
-# Check memory
+# Check 9: Memory
+((current_check++))
+log_info "[$current_check/$total_checks] Checking available memory..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 mem_available=$(get_available_memory)
 log_info "Available memory: ${mem_available}GB"
 if (( $(echo "$mem_available < 2" | bc -l) )); then
@@ -153,12 +169,15 @@ if (( $(echo "$mem_available < 2" | bc -l) )); then
 fi
 
 # Final summary
+echo ""
 log_info "Prerequisites Check Summary:"
 if $PREREQUISITES_MET; then
+    show_completion_summary "PREREQUISITES CHECK" "" "SUCCESS"
     log_success "All prerequisites met! You can proceed with installation."
     finish_logging
     exit 0
 else
+    show_completion_summary "PREREQUISITES CHECK" "" "FAILED"
     log_error "Some prerequisites are not met. Please address the issues above before proceeding."
     finish_logging
     exit 1

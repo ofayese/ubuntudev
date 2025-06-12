@@ -16,6 +16,21 @@ log_success() { echo -e "\e[32m[SUCCESS]\e[0m $*" | tee -a "${LOG_PATH}"; }
 log_warning() { echo -e "\e[33m[WARN]\e[0m $*" | tee -a "${LOG_PATH}"; }
 log_error()   { echo -e "\e[31m[ERROR]\e[0m $*" | tee -a "${LOG_PATH}" >&2; }
 
+# Execute command with logging
+log_cmd() {
+  local cmd="$1"
+  local desc="${2:-Running command}"
+  log_info "$desc: $cmd"
+  if eval "$cmd"; then
+    log_success "$desc completed successfully"
+    return 0
+  else
+    local exit_code=$?
+    log_error "$desc failed (exit code: $exit_code)"
+    return $exit_code
+  fi
+}
+
 # Progress indicator functions
 show_progress() {
   local current="$1"
