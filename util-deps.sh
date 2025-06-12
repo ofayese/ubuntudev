@@ -71,7 +71,7 @@ load_dependencies() {
   done
 }
 
-resolved=(); declare -A MARK TEMP SEL
+resolved=(); declare -A MARK TEMP
 resolve_comp() {
   local c="$1"
   [[ -n "${TEMP[$c]:-}" ]] && { log_error "Cycle at $c"; exit 1; }
@@ -84,9 +84,9 @@ resolve_comp() {
 resolve_selected() {
   # Reset arrays for fresh resolution
   resolved=()
-  declare -A MARK TEMP SEL
+  declare -A MARK TEMP
   
-  for s in "$@"; do SEL["$s"]=1; done
+  # No need to set SEL, just resolve the requested components
   for s in "$@"; do [[ -z "${MARK[$s]:-}" ]] && resolve_comp "$s"; done
   echo "${resolved[@]}"
 }

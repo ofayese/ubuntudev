@@ -7,7 +7,9 @@ source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-env.sh"
 source "$SCRIPT_DIR/util-install.sh"
 
-LOGFILE="/var/log/ubuntu-dev-tools.log"
+# Use more accessible log path
+LOGFILE="${HOME}/.cache/ubuntu-dev-tools.log"
+mkdir -p "$(dirname "$LOGFILE")"
 init_logging "$LOGFILE"
 
 # Define installation steps for progress tracking
@@ -27,7 +29,14 @@ total_steps=${#INSTALL_STEPS[@]}
 log_info "[$current_step/$total_steps] Updating package index..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Updating package index"
-update_package_index
+
+# Update with error handling
+if sudo apt-get update -y >/dev/null 2>&1; then
+  log_success "Package index updated successfully"
+else
+  log_warning "Package index update had some issues, but continuing..."
+fi
+
 stop_spinner "Updating package index"
 
 # Step 2: Install system monitoring tools
@@ -35,7 +44,26 @@ stop_spinner "Updating package index"
 log_info "[$current_step/$total_steps] Installing system monitoring tools..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing system monitoring tools"
-install_packages htop btop glances ncdu iftop
+
+# Install packages individually with error tolerance
+monitoring_packages=(htop btop glances ncdu iftop)
+failed_monitoring=()
+
+for pkg in "${monitoring_packages[@]}"; do
+  log_info "Attempting to install $pkg..."
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1; then
+    log_success "Installed $pkg"
+  else
+    log_warning "Failed to install $pkg - may not be available"
+    failed_monitoring+=("$pkg")
+  fi
+done
+
+if [ ${#failed_monitoring[@]} -gt 0 ]; then
+  log_warning "Some monitoring tools failed to install: ${failed_monitoring[*]}"
+  log_info "Basic monitoring tools (like htop) should still be available"
+fi
+
 stop_spinner "Installing system monitoring tools"
 
 # Step 3: Install CLI utilities
@@ -43,7 +71,43 @@ stop_spinner "Installing system monitoring tools"
 log_info "[$current_step/$total_steps] Installing CLI utilities..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing CLI utilities"
-install_packages bat fzf ripgrep
+
+# Install packages individually with error tolerance
+cli_packages=(bat fzf ripgrep)
+failed_cli=()
+
+for pkg in "${cli_packages[@]}"; do
+  log_info "Attempting to install $pkg..."
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1; then
+    log_success "Installed $pkg"
+  else
+    log_warning "Failed to install $pkg - may not be available"
+    failed_cli+=("$pkg")
+  fi
+done
+
+if [ ${#failed_cli[@]} -gt 0 ]; then
+  log_warning "Some CLI utilities failed to install: ${failed_cli[*]}"
+  log_info "Trying alternative names or fallbacks..."
+  
+  # Try alternative package names
+  for pkg in "${failed_cli[@]}"; do
+    case "$pkg" in
+      "bat")
+        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y batcat >/dev/null 2>&1; then
+          log_success "Installed batcat (bat alternative)"
+          echo 'alias bat=batcat' >> "$HOME/.bashrc"
+        fi
+        ;;
+      "ripgrep")
+        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rg >/dev/null 2>&1; then
+          log_success "Installed rg (ripgrep alternative)"
+        fi
+        ;;
+    esac
+  done
+fi
+
 stop_spinner "Installing CLI utilities"
 
 # Step 4: Install eza from GitHub
@@ -51,15 +115,30 @@ stop_spinner "Installing CLI utilities"
 log_info "[$current_step/$total_steps] Installing eza from GitHub..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing eza from GitHub"
+
 # Check if eza is already installed
 if command -v eza &> /dev/null; then
   log_info "eza is already installed, skipping..."
 else
-  install_from_github "eza-community/eza" "_amd64.deb" "sudo dpkg -i {}" "eza" || {
+  log_info "Attempting to install eza from GitHub..."
+  
+  # Try to install eza with error handling
+  if install_from_github "eza-community/eza" "_amd64.deb" "sudo dpkg -i {}" "eza" 2>/dev/null; then
+    log_success "eza installed successfully from GitHub"
+  else
     log_warning "Failed to install eza from GitHub. Creating alias to ls instead."
-    echo 'alias eza="ls"' >> "$HOME/.bashrc"
-  }
+    # Ensure .bashrc exists and add the alias
+    touch "$HOME/.bashrc"
+    if ! grep -q 'alias eza=' "$HOME/.bashrc"; then
+      echo 'alias eza="ls --color=auto"' >> "$HOME/.bashrc"
+    fi
+    # Also try installing via apt as fallback
+    if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y eza >/dev/null 2>&1; then
+      log_success "eza installed via apt as fallback"
+    fi
+  fi
 fi
+
 stop_spinner "Installing eza from GitHub"
 
 # Step 5: Install Zsh & Oh-My-Zsh
@@ -67,12 +146,36 @@ stop_spinner "Installing eza from GitHub"
 log_info "[$current_step/$total_steps] Installing Zsh & Oh-My-Zsh..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing Zsh & Oh-My-Zsh"
-install_packages zsh
-if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-  RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(wget -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" >/dev/null 2>&1
+
+# Install Zsh with error handling
+if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zsh >/dev/null 2>&1; then
+  log_success "Installed zsh"
+  
+  # Install Oh-My-Zsh if not already present
+  if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+    log_info "Installing Oh-My-Zsh..."
+    if RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(wget -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" >/dev/null 2>&1; then
+      log_success "Oh-My-Zsh installed successfully"
+    else
+      log_warning "Failed to install Oh-My-Zsh, but zsh is available"
+    fi
+  else
+    log_info "Oh-My-Zsh is already installed"
+  fi
+else
+  log_warning "Failed to install zsh"
 fi
+
 stop_spinner "Installing Zsh & Oh-My-Zsh"
 
 log_success "DevTools setup completed successfully!"
 
+# Report any issues but don't fail the entire script
+total_failed=$((${#failed_monitoring[@]} + ${#failed_cli[@]}))
+if [ $total_failed -gt 0 ]; then
+  log_warning "Some optional packages failed to install, but core development tools are ready"
+  log_info "You can manually install missing packages later if needed"
+fi
+
 finish_logging
+exit 0

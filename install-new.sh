@@ -24,8 +24,7 @@ while [[ $# -gt 0 ]]; do
     --graph)        GRAPH=true ;;
     --validate)     VALIDATE=true ;;
     --all)          ALL=true ;;
-    --debug)        DEBUG=true; set -x ;;
-    --timeout)      shift; TIMEOUT="${1:-300}" ;;
+    --debug)        set -x ;;
     *) COMPONENT_FLAGS+=("$1") ;;
   esac
   shift
@@ -124,4 +123,5 @@ else
   log_success "All done!"
 fi
 
+finish_logging
 finish_logging

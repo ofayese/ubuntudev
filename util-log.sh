@@ -112,10 +112,22 @@ log_cmd_with_progress() {
 
 init_logging() {
   LOG_PATH="${1:-$DEFAULT_LOG_PATH}"
-  sudo mkdir -p "$(dirname -- "$LOG_PATH")" 2>/dev/null || true
-  sudo touch "$LOG_PATH" 2>/dev/null || true
-  sudo chmod a+w "$LOG_PATH" 2>/dev/null || true
-  echo "=== [$(basename -- "$0")] Started at $(date) ===" | tee -a "${LOG_PATH}"
+  
+  # Try to create log directory with fallback to user home
+  if sudo mkdir -p "$(dirname -- "$LOG_PATH")" 2>/dev/null && sudo touch "$LOG_PATH" 2>/dev/null && sudo chmod a+w "$LOG_PATH" 2>/dev/null; then
+    # Successfully created log in system directory
+    echo "=== [$(basename -- "$0")] Started at $(date) ===" | tee -a "${LOG_PATH}"
+  else
+    # Fallback to user directory
+    LOG_PATH="${HOME}/.cache/ubuntu-dev-tools.log"
+    mkdir -p "$(dirname -- "$LOG_PATH")" 2>/dev/null || true
+    touch "$LOG_PATH" 2>/dev/null || true
+    echo "=== [$(basename -- "$0")] Started at $(date) ===" | tee -a "${LOG_PATH}" 2>/dev/null || {
+      # If even that fails, just use console logging
+      LOG_PATH="/dev/null"
+      echo "=== [$(basename -- "$0")] Started at $(date) ==="
+    }
+  fi
 }
 
 set_error_trap() {
