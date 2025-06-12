@@ -14,6 +14,7 @@ set_error_trap
 
 STATE_FILE="$HOME/.ubuntu-devtools.state"
 RESUME=false
+COMPONENT_FLAGS=()
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,8 @@ touch "$STATE_FILE"
 
 # Determine components
 load_dependencies "$SCRIPT_DIR/dependencies.yaml"
+selected=()
+
 if [[ "${ALL:-false}" == true ]]; then
   selected=("${COMPONENTS[@]}")
 else
@@ -69,7 +72,9 @@ fi
 # Unique & ordered components
 unique=(); declare -A seen
 for c in "${selected[@]}"; do [[ -z "${seen[$c]}" ]] && unique+=("$c") && seen["$c"]=1; done
-ordered=($(resolve_selected "${unique[@]}"))
+
+# Get resolved dependency order
+readarray -t ordered < <(resolve_selected "${unique[@]}" | tr ' ' '\n')
 
 log_info "Installation order: ${ordered[*]}"
 log_info "Total components to install: ${#ordered[@]}"
@@ -83,7 +88,7 @@ current_step=0
 for comp in "${ordered[@]}"; do
   ((current_step++))
   
-  if [[ "${RESUME}" == true && is_done "$comp" ]]; then
+  if [[ "${RESUME}" == "true" ]] && is_done "$comp"; then
     log_info "Skipping $comp (already done)."
     show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
     continue

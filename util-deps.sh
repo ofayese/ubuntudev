@@ -2,10 +2,19 @@
 # util-deps.sh - Dependency graph management
 set -euo pipefail
 
+# Guard against multiple sourcing
+if [[ "${UTIL_DEPS_LOADED:-}" == "true" ]]; then
+  return 0
+fi
+readonly UTIL_DEPS_LOADED="true"
+
 source "$(dirname "${BASH_SOURCE[0]}")/util-log.sh"
 
 declare -A REQUIRES DEPENDENTS SCRIPTS DESCRIPTIONS
 COMPONENTS=()
+
+# Export arrays for use by other scripts
+export REQUIRES DEPENDENTS SCRIPTS DESCRIPTIONS COMPONENTS
 
 load_dependencies() {
   local yaml="$1"
@@ -40,10 +49,14 @@ resolve_comp() {
   [[ -n "${MARK[$c]:-}" ]] && return
   TEMP["$c"]=1
   for d in ${REQUIRES[$c]}; do resolve_comp "$d"; done
-  MARK["$c"]=1; unset TEMP["$c"]; resolved+=("$c")
+  MARK["$c"]=1; unset "TEMP[$c]"; resolved+=("$c")
 }
 
 resolve_selected() {
+  # Reset arrays for fresh resolution
+  resolved=()
+  declare -A MARK TEMP SEL
+  
   for s in "$@"; do SEL["$s"]=1; done
   for s in "$@"; do [[ -z "${MARK[$s]:-}" ]] && resolve_comp "$s"; done
   echo "${resolved[@]}"

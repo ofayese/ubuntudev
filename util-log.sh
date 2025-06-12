@@ -2,6 +2,12 @@
 # util-log.sh - Unified logging and error handling utilities
 set -euo pipefail
 
+# Guard against multiple sourcing
+if [[ "${UTIL_LOG_LOADED:-}" == "true" ]]; then
+  return 0
+fi
+readonly UTIL_LOG_LOADED="true"
+
 DEFAULT_LOG_PATH="/var/log/ubuntu-dev-tools.log"
 LOG_PATH="${LOG_PATH:-$DEFAULT_LOG_PATH}"
 

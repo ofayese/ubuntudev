@@ -67,7 +67,6 @@ fi
 log_info "[$current_check/$total_checks] Checking Ubuntu version..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
-local ubuntu_version
 ubuntu_version=$(get_ubuntu_version)
 
 if [[ "$ubuntu_version" == "non-ubuntu" ]]; then
@@ -164,3 +163,4 @@ else
     finish_logging
     exit 1
 fi
+

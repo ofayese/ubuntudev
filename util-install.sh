@@ -2,6 +2,12 @@
 # util-install.sh - Centralized installation and package management functions
 set -euo pipefail
 
+# Guard against multiple sourcing
+if [[ "${UTIL_INSTALL_LOADED:-}" == "true" ]]; then
+  return 0
+fi
+readonly UTIL_INSTALL_LOADED="true"
+
 source "$(dirname "${BASH_SOURCE[0]}")/util-log.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/util-env.sh"
 

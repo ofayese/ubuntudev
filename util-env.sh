@@ -2,10 +2,24 @@
 # util-env.sh - Unified environment detection and system info utilities
 set -euo pipefail
 
-# --- Environment Types ---
-readonly ENV_WSL="WSL2"
-readonly ENV_DESKTOP="DESKTOP"
-readonly ENV_HEADLESS="HEADLESS"
+# Guard against multiple sourcing
+if [[ "${UTIL_ENV_LOADED:-}" == "true" ]]; then
+  return 0
+fi
+readonly UTIL_ENV_LOADED="true"
+
+# --- Environment Types (with guards to prevent redeclaration) ---
+if [[ -z "${ENV_WSL:-}" ]]; then
+  readonly ENV_WSL="WSL2"
+fi
+
+if [[ -z "${ENV_DESKTOP:-}" ]]; then
+  readonly ENV_DESKTOP="DESKTOP"
+fi
+
+if [[ -z "${ENV_HEADLESS:-}" ]]; then
+  readonly ENV_HEADLESS="HEADLESS"
+fi
 
 # --- Detect environment type ---
 detect_environment() {

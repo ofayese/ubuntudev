@@ -2,6 +2,12 @@
 # util-versions.sh - Language version managers utility functions
 set -euo pipefail
 
+# Guard against multiple sourcing
+if [[ "${UTIL_VERSIONS_LOADED:-}" == "true" ]]; then
+  return 0
+fi
+readonly UTIL_VERSIONS_LOADED="true"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-env.sh"
