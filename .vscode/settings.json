@@ -79,5 +79,5 @@
     "workbench.editor.enablePreview": true,
     "workbench.editor.enablePreviewFromQuickOpen": true,
     "workbench.editor.highlightModifiedTabs": true,
-    "workbench.editor.showTabs": true
+    "workbench.editor.showTabs": "multiple"
 }
