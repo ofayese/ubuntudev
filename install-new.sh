@@ -54,7 +54,10 @@ load_dependencies "$SCRIPT_DIR/dependencies.yaml"
 selected=()
 
 if [[ "${ALL:-false}" == true ]]; then
-  selected=("${COMPONENTS[@]}")
+  # Copy all components to selected array
+  for comp in "${COMPONENTS[@]}"; do
+    selected+=("$comp")
+  done
 else
   for f in "${COMPONENT_FLAGS[@]}"; do
     case "$f" in
@@ -73,22 +76,23 @@ fi
 
 # Unique & ordered components
 unique=(); declare -A seen
-for c in "${selected[@]}"; do [[ -z "${seen[$c]}" ]] && unique+=("$c") && seen["$c"]=1; done
+for c in "${selected[@]}"; do [[ -z "${seen[$c]:-}" ]] && unique+=("$c") && seen["$c"]=1; done
 
 # Get resolved dependency order
 readarray -t ordered < <(resolve_selected "${unique[@]}" | tr ' ' '\n')
 
+log_info "Selected components: ${unique[*]}"
 log_info "Installation order: ${ordered[*]}"
 log_info "Total components to install: ${#ordered[@]}"
 
 mark_done() { grep -Fxq "$1" "$STATE_FILE" || echo "$1" >> "$STATE_FILE"; }
 is_done()   { grep -Fxq "$1" "$STATE_FILE"; }
 
-failed=(); declare -A skip
+failed=(); declare -A skip=()
 current_step=0
 
 for comp in "${ordered[@]}"; do
-  ((current_step++))
+  current_step=$((current_step + 1))
   
   if [[ "${RESUME}" == "true" ]] && is_done "$comp"; then
     log_info "Skipping $comp (already done)."
@@ -108,7 +112,7 @@ for comp in "${ordered[@]}"; do
   log_info "[$current_step/${#ordered[@]}] Installing: $desc"
   show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
   
-  install_component "$script" "$desc" "$SCRIPT_DIR" || { failed+=("$comp"); for d in ${DEPENDENTS[$comp]}; do skip["$d"]=1; done; }
+  install_component "$script" "$desc" "$SCRIPT_DIR" || { failed+=("$comp"); for d in ${DEPENDENTS[$comp]:-}; do skip["$d"]=1; done; }
   mark_done "$comp"
 done
 

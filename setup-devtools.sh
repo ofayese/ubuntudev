@@ -43,7 +43,7 @@ stop_spinner "Installing system monitoring tools"
 log_info "[$current_step/$total_steps] Installing CLI utilities..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing CLI utilities"
-install_packages bat exa fzf ripgrep
+install_packages bat fzf ripgrep
 stop_spinner "Installing CLI utilities"
 
 # Step 4: Install eza from GitHub
@@ -51,7 +51,15 @@ stop_spinner "Installing CLI utilities"
 log_info "[$current_step/$total_steps] Installing eza from GitHub..."
 show_progress "$current_step" "$total_steps" "DevTools Setup"
 start_spinner "Installing eza from GitHub"
-install_from_github "eza-community/eza" "_amd64.deb" "sudo dpkg -i {}" "eza"
+# Check if eza is already installed
+if command -v eza &> /dev/null; then
+  log_info "eza is already installed, skipping..."
+else
+  install_from_github "eza-community/eza" "_amd64.deb" "sudo dpkg -i {}" "eza" || {
+    log_warning "Failed to install eza from GitHub. Creating alias to ls instead."
+    echo 'alias eza="ls"' >> "$HOME/.bashrc"
+  }
+fi
 stop_spinner "Installing eza from GitHub"
 
 # Step 5: Install Zsh & Oh-My-Zsh

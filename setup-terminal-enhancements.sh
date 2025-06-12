@@ -52,6 +52,33 @@ if [[ "$ENV_TYPE" == "$ENV_HEADLESS" ]]; then
   log_warning "Headless environment detected - some GUI features may not work"
 fi
 
+# Install Starship if not already installed
+install_starship() {
+  if command -v starship &> /dev/null; then
+    log_info "Starship is already installed, skipping..."
+    return 0
+  fi
+  
+  log_info "Installing Starship prompt..."
+  curl -sS https://starship.rs/install.sh | sh -s -- --yes >/dev/null 2>&1 || {
+    log_warning "Failed to install Starship using curl script, trying alternative methods..."
+    # Try installing via cargo if available
+    if command -v cargo &> /dev/null; then
+      cargo install starship >/dev/null 2>&1 || {
+        log_warning "Failed to install Starship via cargo, creating a simple PS1 prompt instead."
+        echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+        return 1
+      }
+    else
+      log_warning "Failed to install Starship and cargo not available. Creating a simple PS1 prompt instead."
+      echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+      return 1
+    fi
+  }
+  log_success "Starship installed successfully"
+  return 0
+}
+
 # Define installation steps for progress tracking
 declare -a SETUP_STEPS=(
   "fonts_and_terminal"
@@ -164,6 +191,14 @@ set -g status-right "#[fg=cyan]%Y-%m-%d #[fg=white]%H:%M:%S "
 
 bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "xclip -sel clip -i"
 EOF
+
+# --- Install Starship Prompt ---
+((current_step++))
+log_info "[$current_step/$total_steps] Installing Starship prompt..."
+show_progress "$current_step" "$total_steps" "Terminal Setup"
+start_spinner "Installing Starship prompt"
+install_starship
+stop_spinner "Installing Starship prompt"
 
 # --- Starship Configuration ---
 mkdir -p ~/.config
