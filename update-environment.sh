@@ -67,7 +67,7 @@ update_languages() {
     log_info "Updating pyenv..."
     
     # Update pyenv itself
-    log_cmd "cd $HOME/.pyenv && git pull" "Updating pyenv"
+    log_cmd "(cd \"$HOME/.pyenv\" && git pull)" "Updating pyenv"
     
     # Update Python versions
     log_cmd "pyenv install -s 3.12.0" "Installing/updating Python 3.12" || true

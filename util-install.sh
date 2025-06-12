@@ -33,7 +33,7 @@ install_snap() {
   local s="$1" c="${2:-}" cmd="sudo snap install $s"
   [[ "$c" == "--classic" ]] && cmd+=" --classic"
   log_info "Installing snap: $s"
-  $cmd || { log_error "Snap $s failed."; return 1; }
+  eval "$cmd" || { log_error "Snap $s failed."; return 1; }
 }
 
 install_deb_package() {
@@ -48,10 +48,12 @@ install_from_github() {
   command -v "$bin" &>/dev/null && { log_info "$bin exists, skipping."; return 0; }
   log_info "Fetching latest release of $repo"
   local api="https://api.github.com/repos/$repo/releases/latest"
-  local dl=$(wget -qO- "$api" | grep -Eo '"browser_download_url": "[^"]*'" | grep "$pat" | head -n1 | cut -d" -f4)
+  local dl
+  dl=$(wget -qO- "$api" | grep -Eo '"browser_download_url": "[^"]*"' | grep "$pat" | head -n1 | cut -d'"' -f4)
   [[ -n "$dl" ]] || { log_error "No asset matching $pat"; return 1; }
-  local fn="/tmp/$(basename "$dl")"
-  wget -q -O "$fn" "$dl" &&   { log_info "Installing $bin"; eval "${cmd_tmpl//\{\}/$fn}"; rm -f "$fn"; }   || { log_error "Install $bin failed"; return 1; }
+  local fn
+  fn="/tmp/$(basename "$dl")"
+  wget -q -O "$fn" "$dl" && { log_info "Installing $bin"; eval "${cmd_tmpl//\{\}/$fn}"; rm -f "$fn"; } || { log_error "Install $bin failed"; return 1; }
 }
 
 install_python_package() {

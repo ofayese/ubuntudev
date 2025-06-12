@@ -37,9 +37,9 @@ setup_nvm() {
       {
         echo ''
         echo '# NVM Configuration'
-        echo 'export NVM_DIR="$HOME/.nvm"'
-        echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-        echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+        echo "export NVM_DIR=\"\$HOME/.nvm\""
+        echo "[ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\""
+        echo "[ -s \"\$NVM_DIR/bash_completion\" ] && \. \"\$NVM_DIR/bash_completion\""
       } >> "$PROFILE"
       log_success "Added NVM to $PROFILE"
     fi
@@ -69,8 +69,10 @@ setup_nvm() {
   nvm use default
   
   # Print versions
-  local node_version="$(node -v)"
-  local npm_version="$(npm -v)"
+  local node_version
+  node_version="$(node -v)"
+  local npm_version
+  npm_version="$(npm -v)"
   log_success "Node.js version: $node_version, npm version: $npm_version"
   
   finish_logging
@@ -96,7 +98,10 @@ setup_pyenv() {
     curl https://pyenv.run | bash
   else
     log_info "pyenv already installed, updating..."
-    cd "$HOME/.pyenv" && git pull
+    (cd "$HOME/.pyenv" && git pull) || {
+      log_warning "Failed to update pyenv"
+      return 1
+    }
   fi
   
   # Add pyenv to shell profiles
@@ -105,9 +110,9 @@ setup_pyenv() {
       {
         echo ''
         echo '# Pyenv Configuration'
-        echo 'export PYENV_ROOT="$HOME/.pyenv"'
-        echo 'export PATH="$PYENV_ROOT/bin:$PATH"'
-        echo 'if command -v pyenv >/dev/null; then eval "$(pyenv init -)"; fi'
+        echo "export PYENV_ROOT=\"\$HOME/.pyenv\""
+        echo "export PATH=\"\$PYENV_ROOT/bin:\$PATH\""
+        echo "if command -v pyenv >/dev/null; then eval \"\$(pyenv init -)\"; fi"
       } >> "$PROFILE"
       log_success "Added pyenv to $PROFILE"
     fi
@@ -169,8 +174,8 @@ setup_sdkman() {
       {
         echo ''
         echo '# SDKMAN Configuration'
-        echo 'export SDKMAN_DIR="$HOME/.sdkman"'
-        echo '[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"'
+        echo "export SDKMAN_DIR=\"\$HOME/.sdkman\""
+        echo "[[ -s \"\$HOME/.sdkman/bin/sdkman-init.sh\" ]] && source \"\$HOME/.sdkman/bin/sdkman-init.sh\""
       } >> "$PROFILE"
       log_success "Added SDKMAN to $PROFILE"
     fi
@@ -193,7 +198,8 @@ setup_sdkman() {
   fi
   
   # Print versions
-  local java_version="$(java -version 2>&1 | grep version | cut -d '"' -f 2)"
+  local java_version
+  java_version="$(java -version 2>&1 | grep version | cut -d '"' -f 2)"
   log_success "Java versions installed: $(sdk list java | grep installed | tr '\n' ' ')"
   log_success "Default Java: $java_version"
   
@@ -217,7 +223,7 @@ setup_rustup() {
     # Add rustup to shell profiles
     for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
       if [ -f "$PROFILE" ] && ! grep -q 'cargo/env' "$PROFILE"; then
-        echo 'source "$HOME/.cargo/env"' >> "$PROFILE"
+        echo "source \"\$HOME/.cargo/env\"" >> "$PROFILE"
         log_success "Added Rust to $PROFILE"
       fi
     done
@@ -228,7 +234,8 @@ setup_rustup() {
   
   # Check installation
   if command -v rustc >/dev/null 2>&1; then
-    local rust_version="$(rustc --version)"
+    local rust_version
+    rust_version="$(rustc --version)"
     log_success "Rust installed: $rust_version"
   else
     log_error "Rust installation failed"
@@ -250,7 +257,7 @@ setup_ghcup() {
     # Add GHCup to shell profiles
     for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
       if [ -f "$PROFILE" ] && ! grep -q '.ghcup/env' "$PROFILE"; then
-        echo 'source "$HOME/.ghcup/env"' >> "$PROFILE"
+        echo "source \"\$HOME/.ghcup/env\"" >> "$PROFILE"
         log_success "Added GHCup to $PROFILE"
       fi
     done
@@ -261,7 +268,8 @@ setup_ghcup() {
   
   # Check installation
   if command -v ghc >/dev/null 2>&1; then
-    local ghc_version="$(ghc --version)"
+    local ghc_version
+    ghc_version="$(ghc --version)"
     log_success "Haskell installed: $ghc_version"
   else
     log_error "Haskell installation failed"
@@ -296,8 +304,8 @@ setup_golang() {
       {
         echo ''
         echo '# Go Configuration'
-        echo 'export GOPATH=$HOME/go'
-        echo 'export PATH=$PATH:$GOPATH/bin'
+        echo "export GOPATH=\$HOME/go"
+        echo "export PATH=\$PATH:\$GOPATH/bin"
       } >> "$PROFILE"
       log_success "Added Go to $PROFILE"
     fi
@@ -305,7 +313,8 @@ setup_golang() {
   
   # Check installation
   if command -v go >/dev/null 2>&1; then
-    local go_version="$(go version)"
+    local go_version
+    go_version="$(go version)"
     log_success "Go installed: $go_version"
   else
     log_error "Go installation failed"

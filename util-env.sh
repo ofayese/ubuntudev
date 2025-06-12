@@ -3,9 +3,9 @@
 set -euo pipefail
 
 # --- Environment Types ---
-ENV_WSL="WSL2"
-ENV_DESKTOP="DESKTOP" 
-ENV_HEADLESS="HEADLESS"
+readonly ENV_WSL="WSL2"
+readonly ENV_DESKTOP="DESKTOP"
+readonly ENV_HEADLESS="HEADLESS"
 
 # --- Detect environment type ---
 detect_environment() {
@@ -67,7 +67,7 @@ get_ubuntu_version() {
 # --- Get available memory in GB ---
 get_available_memory() {
   local mem_available
-  mem_available=$(free -m | grep Mem | awk '{print $7}')
+  mem_available=$(free -m | awk '/^Mem:/ {print $7}')
   echo "scale=1; $mem_available/1024" | bc
 }
 
@@ -87,17 +87,13 @@ command_exists() {
 print_env_banner() {
   local env_type
   env_type=$(detect_environment)
-  
   case "$env_type" in
     "$ENV_WSL")
-      echo -e "\033[1;36m💻 WSL2 Environment\033[0m"
-      ;;
+      echo -e "\033[1;36m💻 WSL2 Environment\033[0m" ;;
     "$ENV_DESKTOP")
-      echo -e "\033[1;32m🖥️ Desktop Environment\033[0m"
-      ;;
+      echo -e "\033[1;32m🖥️ Desktop Environment\033[0m" ;;
     *)
-      echo -e "\033[1;33m🔧 Headless Environment\033[0m"
-      ;;
+      echo -e "\033[1;33m🔧 Headless Environment\033[0m" ;;
   esac
 }
 

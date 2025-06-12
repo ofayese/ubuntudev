@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 LOGFILE="/var/log/ubuntu-dev-tools.log"
@@ -10,7 +10,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/util-log.sh"
 source "$SCRIPT_DIR/util-packages.sh"
 source "$SCRIPT_DIR/util-env.sh"
-# ...existing code...
+# --- Safe install function ---
+safe_install() {
+  safe_apt_install "$@"
+}
+
+# --- Safe install .deb function ---
+safe_install_deb() {
+  safe_install_deb_package "$1" "${2:-}"
+}
 
 # --- Detect headless environments ---
 if ! (command -v gnome-shell >/dev/null 2>&1 && echo "${XDG_SESSION_TYPE:-}" | grep -qE 'x11|wayland'); then
@@ -145,7 +153,7 @@ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
 chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
 
 # --- AI/ML (Miniconda + Py packages) ---
-cd /tmp
+cd /tmp || exit 1
 curl -LO https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh -b -p "$HOME/miniconda"
 echo 'export PATH="$HOME/miniconda/bin:$PATH"' >> ~/.bashrc
@@ -175,10 +183,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | bash -s -- 
 
 # --- LazyGit ---
 LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
-wget "https://github.com/jesseduffield/lazygit/releases/download/${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION#v}_Linux_x86_64.tar.gz" -O /tmp/lazygit.tar.gz
-tar -xf /tmp/lazygit.tar.gz -C /tmp lazygit
-sudo install /tmp/lazygit /usr/local/bin
-rm /tmp/lazygit /tmp/lazygit.tar.gz
+if [ -n "$LAZYGIT_VERSION" ]; then
+    wget "https://github.com/jesseduffield/lazygit/releases/download/${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION#v}_Linux_x86_64.tar.gz" -O /tmp/lazygit.tar.gz
+    tar -xf /tmp/lazygit.tar.gz -C /tmp lazygit
+    sudo install /tmp/lazygit /usr/local/bin
+    rm /tmp/lazygit /tmp/lazygit.tar.gz
+else
+    echo "⚠️ Failed to get LazyGit version"
+fi
 
 # --- SSD TRIM ---
 sudo systemctl enable fstrim.timer

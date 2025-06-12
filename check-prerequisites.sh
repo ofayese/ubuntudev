@@ -51,7 +51,7 @@ else
     VERSION_MAJOR=$(echo "$ubuntu_version" | cut -d. -f1)
     VERSION_MINOR=$(echo "$ubuntu_version" | cut -d. -f2)
     
-    if [[ $VERSION_MAJOR -gt 20 ]] || [[ $VERSION_MAJOR -eq 20 && $VERSION_MINOR -ge 4 ]]; then
+    if [[ "$VERSION_MAJOR" -gt 20 ]] || [[ "$VERSION_MAJOR" -eq 20 && "$VERSION_MINOR" -ge 4 ]]; then
         log_success "Ubuntu version is supported"
     else
         log_warning "Ubuntu $ubuntu_version may not be fully supported (recommended: 20.04+)"
@@ -62,7 +62,7 @@ fi
 log_info "Checking available disk space..."
 AVAILABLE_SPACE_GB=$(get_available_disk)
 
-if [[ $AVAILABLE_SPACE_GB -ge 5 ]]; then
+if [[ "$AVAILABLE_SPACE_GB" -ge 5 ]]; then
     log_success "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB"
 else
     log_warning "Low disk space: ${AVAILABLE_SPACE_GB}GB available (5GB+ recommended)"

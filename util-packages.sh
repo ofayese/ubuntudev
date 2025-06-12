@@ -75,7 +75,10 @@ install_from_github() {
   # Check if already installed
   if command -v "$binary_name" >/dev/null 2>&1; then
     local current_version
-    current_version=$("$binary_name" --version 2>&1 | head -n1 | awk '{print $NF}' || echo "unknown")
+    current_version=$("$binary_name" --version 2>&1 | head -n1 | awk '{print $NF}')
+    if [ -z "$current_version" ]; then
+      current_version="unknown"
+    fi
     log_info "$binary_name is already installed (version: $current_version)"
     finish_logging
     return 0
@@ -102,7 +105,7 @@ install_from_github() {
     log_success "Download complete"
     
     # Install using the provided command
-    local cmd="${install_cmd/\$1/$temp_file}"
+    local cmd="${install_cmd//\$1/$temp_file}"
     log_info "Installing with command: $cmd"
     
     if eval "$cmd"; then

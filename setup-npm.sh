@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 LOGFILE="/var/log/ubuntu-dev-tools.log"
