@@ -29,7 +29,7 @@ current_check=0
 total_checks=${#PREREQ_CHECKS[@]}
 
 # Check 1: Root user check
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking user privileges..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -38,32 +38,44 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # Check 2: Sudo privileges
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking sudo privileges..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
-if ! sudo -n true 2>/dev/null; then
+log_info "Testing sudo without password prompt..."
+if ! timeout 5 sudo -n true 2>/dev/null; then
     log_warning "sudo privileges are required for package installation"
-    if ! sudo -v; then
-        log_error "Failed to obtain sudo privileges"
+    log_info "Requesting sudo password (timeout: 30 seconds)..."
+    if ! timeout 30 sudo -v 2>/dev/null; then
+        log_error "Failed to obtain sudo privileges or timed out"
+        PREREQUISITES_MET=false
+    else
+        log_success "sudo privileges confirmed"
+    fi
+else
+    log_success "sudo privileges available (no password required)"
+fi
+
+# Check 3: Internet connectivity
+current_check=$((current_check + 1))
+log_info "[$current_check/$total_checks] Checking internet connectivity..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
+log_info "Testing internet connectivity (timeout: 10 seconds)..."
+if timeout 10 ping -c 1 google.com >/dev/null 2>&1; then
+    log_success "Internet connectivity confirmed"
+else
+    log_info "Primary connectivity test failed, trying alternative..."
+    if timeout 10 ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        log_success "Internet connectivity confirmed (DNS may have issues)"
+    else
+        log_error "No internet connectivity - required for package downloads"
         PREREQUISITES_MET=false
     fi
 fi
 
-# Check 3: Internet connectivity
-((current_check++))
-log_info "[$current_check/$total_checks] Checking internet connectivity..."
-show_progress "$current_check" "$total_checks" "Prerequisites Check"
-
-if ping -c 1 google.com >/dev/null 2>&1; then
-    log_success "Internet connectivity confirmed"
-else
-    log_error "No internet connectivity - required for package downloads"
-    PREREQUISITES_MET=false
-fi
-
 # Check 4: Ubuntu version
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking Ubuntu version..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -88,7 +100,7 @@ else
 fi
 
 # Check 5: Available disk space
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking available disk space..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -101,7 +113,7 @@ else
 fi
 
 # Check 6: Essential commands
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking essential commands..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -117,19 +129,20 @@ for cmd in "${ESSENTIAL_COMMANDS[@]}"; do
 done
 
 # Check 7: APT functionality
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Testing apt update..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
-if sudo apt update >/dev/null 2>&1; then
+log_info "Running apt update (timeout: 60 seconds)..."
+if timeout 60 sudo apt update >/dev/null 2>&1; then
     log_success "apt update successful"
 else
-    log_error "apt update failed - check network and repository configuration"
+    log_error "apt update failed or timed out - check network and repository configuration"
     PREREQUISITES_MET=false
 fi
 
 # Check 8: Environment detection
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Environment detection..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -158,7 +171,7 @@ else
 fi
 
 # Check 9: Memory
-((current_check++))
+current_check=$((current_check + 1))
 log_info "[$current_check/$total_checks] Checking available memory..."
 show_progress "$current_check" "$total_checks" "Prerequisites Check"
 
@@ -182,4 +195,3 @@ else
     finish_logging
     exit 1
 fi
-
