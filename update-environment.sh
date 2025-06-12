@@ -28,23 +28,26 @@ log_info "Detected environment: $ENV_TYPE"
 # Function to update system packages
 update_system_packages() {
   log_info "Updating system packages..."
+  start_spinner "Updating system packages"
   
   # Update package lists
-  log_cmd "sudo apt-get update -q" "Updating package lists"
+  log_cmd "sudo apt-get update -q" "Updating package lists" >/dev/null 2>&1
   
-  # Upgrade packages
-  log_cmd "sudo apt-get upgrade -y" "Upgrading packages"
+  # Upgrade packages  
+  log_cmd "sudo apt-get upgrade -y" "Upgrading packages" >/dev/null 2>&1
   
   # Clean up
-  log_cmd "sudo apt-get autoremove -y" "Removing unused packages"
-  log_cmd "sudo apt-get autoclean -y" "Cleaning package cache"
+  log_cmd "sudo apt-get autoremove -y" "Removing unused packages" >/dev/null 2>&1
+  log_cmd "sudo apt-get autoclean -y" "Cleaning package cache" >/dev/null 2>&1
   
+  stop_spinner "Updating system packages"
   log_success "System packages updated"
 }
 
 # Function to update version managers and languages
 update_languages() {
   log_info "Updating language environments..."
+  start_spinner "Updating language environments"
   
   # Update Node.js via NVM
   if command -v nvm >/dev/null 2>&1; then
@@ -224,19 +227,74 @@ update_python_packages() {
 
 # Function to run the full update
 run_full_update() {
+  # Define update steps for progress tracking
+  declare -a UPDATE_STEPS=(
+    "system_packages"
+    "languages"
+    "containers"
+    "vscode_extensions"
+    "npm_packages"
+    "python_packages"
+  )
+  
+  # Add WSL step if applicable
+  if [ "$ENV_TYPE" = "WSL2" ]; then
+    UPDATE_STEPS+=("wsl_config")
+  fi
+  
+  local current_step=0
+  local total_steps=${#UPDATE_STEPS[@]}
+  
+  log_info "Starting full environment update with $total_steps steps"
+  
+  # Step 1: Update system packages
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating system packages..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_system_packages
+  
+  # Step 2: Update languages
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating language environments..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_languages
+  
+  # Step 3: Update containers
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating container tools..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_containers
+  
+  # Step 4: Update VS Code extensions
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating VS Code extensions..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_vscode_extensions
+  
+  # Step 5: Update npm packages
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating npm packages..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_npm_packages
+  
+  # Step 6: Update Python packages
+  ((current_step++))
+  log_info "[$current_step/$total_steps] Updating Python packages..."
+  show_progress "$current_step" "$total_steps" "Environment Update"
   update_python_packages
   
-  # WSL-specific updates
+  # WSL-specific updates (Step 7 if applicable)
   if [ "$ENV_TYPE" = "WSL2" ]; then
-    log_info "Checking WSL configuration..."
+    ((current_step++))
+    log_info "[$current_step/$total_steps] Updating WSL configuration..."
+    show_progress "$current_step" "$total_steps" "Environment Update"
+    start_spinner "Checking WSL configuration"
     source "$SCRIPT_DIR/util-wsl.sh"
-    setup_wsl_environment
+    setup_wsl_environment >/dev/null 2>&1
+    stop_spinner "Checking WSL configuration"
   fi
+  
+  log_success "Full environment update completed!"
 }
 
 # Parse arguments

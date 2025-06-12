@@ -68,41 +68,71 @@ check_node_package() {
 echo "🔍 Validating Ubuntu Development Environment Setup"
 echo "================================================="
 
-# Check basic tools
-echo "📋 Checking Basic Development Tools:"
-check_command "git" "Git"
-check_command "curl" "cURL"
-check_command "wget" "wget"
-check_command "vim" "Vim"
-check_command "tmux" "tmux"
-check_command "zsh" "Zsh"
+# Define validation steps for progress tracking
+declare -a VALIDATION_STEPS=(
+  "basic_tools"
+  "modern_cli_tools"
+  "language_runtimes"
+  "development_tools"
+  "container_tools"
+  "dotnet_tools"
+  "python_environment"
+  "shell_environment"
+)
 
-# Check modern CLI tools
-echo ""
-echo "🛠️ Checking Modern CLI Tools:"
-check_command "bat" "bat (cat replacement)"
-check_command "ripgrep" "ripgrep (grep replacement)"
-check_command "fd" "fd (find replacement)"
-check_command "fzf" "fzf (fuzzy finder)"
-check_command "eza" "eza (ls replacement)"
-check_command "duf" "duf (df replacement)"
-check_command "dust" "dust (du replacement)"
-check_command "starship" "Starship prompt"
-check_command "zoxide" "zoxide (cd replacement)"
+current_step=0
+total_steps=${#VALIDATION_STEPS[@]}
 
-# Check language runtimes
+# Step 1: Check basic tools
+((current_step++))
 echo ""
-echo "🌐 Checking Language Runtimes:"
-check_command "node" "Node.js"
-check_command "npm" "npm"
-check_command "python" "Python"
-check_command "pip" "pip"
-check_command "pyenv" "pyenv"
-check_command "nvm" "nvm"
+echo "📋 [$current_step/$total_steps] Checking Basic Development Tools:"
+show_progress "$current_step" "$total_steps" "Validation Progress"
 
-# Check development tools
+basic_tools=("git" "curl" "wget" "vim" "tmux" "zsh")
+for tool in "${basic_tools[@]}"; do
+  check_command "$tool" "${tool^}"
+done
+
+# Step 2: Check modern CLI tools
+((current_step++))
 echo ""
-echo "💻 Checking Development Tools:"
+echo "🛠️ [$current_step/$total_steps] Checking Modern CLI Tools:"
+show_progress "$current_step" "$total_steps" "Validation Progress"
+
+declare -A modern_tools=(
+  ["bat"]="bat (cat replacement)"
+  ["ripgrep"]="ripgrep (grep replacement)"
+  ["fd"]="fd (find replacement)"
+  ["fzf"]="fzf (fuzzy finder)"
+  ["eza"]="eza (ls replacement)"
+  ["duf"]="duf (df replacement)"
+  ["dust"]="dust (du replacement)"
+  ["starship"]="Starship prompt"
+  ["zoxide"]="zoxide (cd replacement)"
+)
+
+for tool in "${!modern_tools[@]}"; do
+  check_command "$tool" "${modern_tools[$tool]}"
+done
+
+# Step 3: Check language runtimes
+((current_step++))
+echo ""
+echo "🌐 [$current_step/$total_steps] Checking Language Runtimes:"
+show_progress "$current_step" "$total_steps" "Validation Progress"
+
+language_tools=("node" "npm" "python" "pip" "pyenv" "nvm")
+
+for tool in "${language_tools[@]}"; do
+  check_command "$tool" "${tool^}"
+done
+
+# Step 4: Check development tools  
+((current_step++))
+echo ""
+echo "💻 [$current_step/$total_steps] Checking Development Tools:"
+show_progress "$current_step" "$total_steps" "Validation Progress"
 
 # Check VS Code based on environment (using detect_environment function)
 ENV_TYPE=$(detect_environment)

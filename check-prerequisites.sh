@@ -11,14 +11,37 @@ source "$SCRIPT_DIR/util-env.sh"
 init_logging
 log_info "Prerequisites check started"
 
-PREREQUISITES_MET=true
+# Define prerequisite checks for progress tracking
+declare -a PREREQ_CHECKS=(
+  "root_check"
+  "sudo_privileges"
+  "internet_connectivity"
+  "ubuntu_version"
+  "disk_space"
+  "essential_commands"
+  "apt_functionality"
+  "environment_detection"
+  "memory_check"
+)
 
-# Check if running as root (not recommended)
+PREREQUISITES_MET=true
+current_check=0
+total_checks=${#PREREQ_CHECKS[@]}
+
+# Check 1: Root user check
+((current_check++))
+log_info "[$current_check/$total_checks] Checking user privileges..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 if [[ $EUID -eq 0 ]]; then
    log_warning "Running as root is not recommended. Please run as a regular user with sudo privileges."
 fi
 
-# Check for sudo privileges
+# Check 2: Sudo privileges
+((current_check++))
+log_info "[$current_check/$total_checks] Checking sudo privileges..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 if ! sudo -n true 2>/dev/null; then
     log_warning "sudo privileges are required for package installation"
     if ! sudo -v; then
@@ -27,8 +50,11 @@ if ! sudo -n true 2>/dev/null; then
     fi
 fi
 
-# Check internet connectivity
-log_info "Checking internet connectivity..."
+# Check 3: Internet connectivity
+((current_check++))
+log_info "[$current_check/$total_checks] Checking internet connectivity..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
 if ping -c 1 google.com >/dev/null 2>&1; then
     log_success "Internet connectivity confirmed"
 else
@@ -36,8 +62,12 @@ else
     PREREQUISITES_MET=false
 fi
 
-# Check Ubuntu version
-log_info "Checking Ubuntu version..."
+# Check 4: Ubuntu version
+((current_check++))
+log_info "[$current_check/$total_checks] Checking Ubuntu version..."
+show_progress "$current_check" "$total_checks" "Prerequisites Check"
+
+local ubuntu_version
 ubuntu_version=$(get_ubuntu_version)
 
 if [[ "$ubuntu_version" == "non-ubuntu" ]]; then

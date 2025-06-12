@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 LOGFILE="/var/log/ubuntu-dev-tools.log"
@@ -42,7 +42,7 @@ sudo apt install -y powershell
 echo "🧠 Installing Miniconda for Python AI/ML stack..."
 sudo apt install -y python3 python3-pip python3-venv curl
 
-cd /tmp
+cd /tmp || exit 1
 curl -LO https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh -b -p "$HOME/miniconda"
 export PATH="$HOME/miniconda/bin:$PATH"

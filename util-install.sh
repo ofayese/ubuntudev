@@ -289,3 +289,37 @@ check_wsl_docker_integration() {
   fi
   return 0
 }
+
+# --- Component Installation with Progress ---
+
+# Install a component script with proper error handling and progress
+install_component() {
+  local script="$1"
+  local description="$2"
+  local script_path
+  
+  # Resolve script path
+  if [[ -f "$script" ]]; then
+    script_path="$script"
+  elif [[ -f "$SCRIPT_DIR/$script" ]]; then
+    script_path="$SCRIPT_DIR/$script"
+  else
+    log_error "Component script not found: $script"
+    return 1
+  fi
+  
+  log_info "Starting component: $description"
+  start_spinner "Installing $description"
+  
+  # Execute the component script
+  if bash "$script_path" >/dev/null 2>&1; then
+    stop_spinner "Installing $description"
+    log_success "Component completed: $description"
+    return 0
+  else
+    local exit_code=$?
+    stop_spinner "Installing $description"
+    log_error "Component failed: $description (exit code: $exit_code)"
+    return $exit_code
+  fi
+}

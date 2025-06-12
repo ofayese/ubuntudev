@@ -1,38 +1,112 @@
 #!/usr/bin/env bash
+# setup-terminal-enhancements.sh - Configure modern terminal environment with Alacritty, tmux, and Starship
+#
+# This script installs and configures:
+# - Alacritty terminal emulator with JetBrains Mono font
+# - tmux terminal multiplexer with mouse support
+# - Starship cross-shell prompt
+# - Enhanced shell configuration for bash and zsh
+# - PowerShell profile (if available)
+#
+# Usage: ./setup-terminal-enhancements.sh
+# 
+# Environment support: WSL2, Desktop, Headless
+# Dependencies: util-log.sh, util-env.sh, util-install.sh
+#
 set -euo pipefail
+
+# Cleanup function for safe exit
+cleanup() {
+  local exit_code=$?
+  log_info "Cleaning up temporary files..."
+  # Remove any temporary files if they exist
+  rm -f /tmp/alacritty_*.deb /tmp/starship_* 2>/dev/null || true
+  finish_logging
+  exit $exit_code
+}
+
+# Set up signal handlers for cleanup
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 # Source utility modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./util-log.sh
 source "$SCRIPT_DIR/util-log.sh"
+# shellcheck source=./util-env.sh
 source "$SCRIPT_DIR/util-env.sh"
+# shellcheck source=./util-install.sh
 source "$SCRIPT_DIR/util-install.sh"
 
 # Initialize logging
 init_logging
 log_info "Terminal enhancements setup started"
 
-# --- Install Alacritty + Fonts ---
-log_info "Installing Alacritty + JetBrains Mono..."
+# Detect environment
+ENV_TYPE=$(detect_environment)
+log_info "Environment detected: $ENV_TYPE"
+
+# Check if desktop environment is available for GUI apps
+if [[ "$ENV_TYPE" == "$ENV_HEADLESS" ]]; then
+  log_warning "Headless environment detected - some GUI features may not work"
+fi
+
+# Define installation steps for progress tracking
+declare -a SETUP_STEPS=(
+  "fonts_and_terminal"
+  "alacritty_config"
+  "tmux_setup"
+  "starship_install"
+  "shell_configs"
+)
+
+current_step=0
+total_steps=${#SETUP_STEPS[@]}
+
+# Step 1: Install Alacritty + Fonts
+((current_step++))
+log_info "[$current_step/$total_steps] Installing fonts and terminal emulator..."
+show_progress "$current_step" "$total_steps" "Terminal Setup"
+
+# Create backup function for safety
+create_config_backup() {
+  local config_path="$1"
+  if [ -f "$config_path" ]; then
+    local backup_path
+    backup_path="${config_path}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$config_path" "$backup_path"
+    log_info "Backed up existing config to $backup_path"
+  fi
+}
+
+start_spinner "Installing fonts and terminal packages"
 
 # Try to add the PPA using consolidated function
-safe_add_apt_repository "ppa:aslatter/ppa" "Alacritty PPA"
+safe_add_apt_repository "ppa:aslatter/ppa" "Alacritty PPA" >/dev/null 2>&1
 
 # Install packages using consolidated function
 packages_to_install=(fonts-jetbrains-mono fonts-firacode neofetch)
 optional_packages=(alacritty)
 
-safe_apt_install "${packages_to_install[@]}"
+safe_apt_install "${packages_to_install[@]}" >/dev/null 2>&1
 
 # Try optional packages individually
 for pkg in "${optional_packages[@]}"; do
-    if safe_apt_install "$pkg"; then
-        log_success "Installed optional package: $pkg"
-    else
-        log_warning "Could not install optional package: $pkg"
-    fi
+    safe_apt_install "$pkg" >/dev/null 2>&1 || log_warning "Could not install optional package: $pkg"
 done
 
+stop_spinner "Installing fonts and terminal packages"
+
+# Step 2: Configure Alacritty
+((current_step++))
+log_info "[$current_step/$total_steps] Configuring Alacritty..."
+show_progress "$current_step" "$total_steps" "Terminal Setup"
+start_spinner "Configuring Alacritty"
+
+# Create Alacritty config with backup
 mkdir -p ~/.config/alacritty
+create_config_backup ~/.config/alacritty/alacritty.toml
 cat > ~/.config/alacritty/alacritty.toml <<'EOF'
 [shell]
 program = "tmux"
@@ -75,6 +149,7 @@ white   = "#bac2de"
 EOF
 
 # --- Tmux Config ---
+create_config_backup ~/.tmux.conf
 cat > ~/.tmux.conf <<'EOF'
 set -g mouse on
 set -g history-limit 100000
@@ -92,6 +167,7 @@ EOF
 
 # --- Starship Configuration ---
 mkdir -p ~/.config
+create_config_backup ~/.config/starship.toml
 cat > ~/.config/starship.toml <<'EOF'
 add_newline = false
 
@@ -126,7 +202,7 @@ format = "took [$duration](bold yellow)"
 EOF
 
 # --- Shell Enhancements ---
-ENV_BANNER_FUNC='
+readonly ENV_BANNER_FUNC='
 # 🧠 Terminal Env Banner + Starship
 __show_env_banner() {
   if grep -qi microsoft /proc/version; then
@@ -150,10 +226,17 @@ fi
 '
 
 if ! grep -q '__show_env_banner' ~/.bashrc 2>/dev/null; then
+  # Ensure .bashrc exists
+  touch ~/.bashrc
   echo "$ENV_BANNER_FUNC" >> ~/.bashrc
 fi
 
-# Zsh version
+# Zsh version - ensure .zshrc exists
+if ! [ -f ~/.zshrc ]; then
+  touch ~/.zshrc
+  log_info "Created new .zshrc file"
+fi
+
 {
   echo ''
   echo '# Zsh terminal UX enhancements'
@@ -178,8 +261,14 @@ fi
 # --- Auto-switch to Zsh ---
 CURRENT_SHELL=$(basename "$SHELL")
 if [ "$CURRENT_SHELL" != "zsh" ]; then
-  log_info "Changing default shell to zsh..."
-  chsh -s "$(command -v zsh)" "$USER"
+  # Check if zsh is available
+  if command_exists zsh; then
+    log_info "Changing default shell to zsh..."
+    log_warning "This will require a logout/login to take effect"
+    chsh -s "$(command -v zsh)" "$USER"
+  else
+    log_warning "zsh not found - install it first with: sudo apt install zsh"
+  fi
 fi
 
 # --- PowerShell Integration ---

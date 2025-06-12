@@ -72,24 +72,35 @@ for c in "${selected[@]}"; do [[ -z "${seen[$c]}" ]] && unique+=("$c") && seen["
 ordered=($(resolve_selected "${unique[@]}"))
 
 log_info "Installation order: ${ordered[*]}"
+log_info "Total components to install: ${#ordered[@]}"
 
 mark_done() { grep -Fxq "$1" "$STATE_FILE" || echo "$1" >> "$STATE_FILE"; }
 is_done()   { grep -Fxq "$1" "$STATE_FILE"; }
 
 failed=(); declare -A skip
+current_step=0
 
 for comp in "${ordered[@]}"; do
+  ((current_step++))
+  
   if [[ "${RESUME}" == true && is_done "$comp" ]]; then
     log_info "Skipping $comp (already done)."
+    show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
     continue
   fi
   if [[ -n "${skip[$comp]:-}" ]]; then
     log_warning "Skipping $comp due to failed dependency."
     failed+=("$comp")
+    show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
     continue
   fi
+  
   script="${SCRIPTS[$comp]}"
   desc="${DESCRIPTIONS[$comp]:-$comp}"
+  
+  log_info "[$current_step/${#ordered[@]}] Installing: $desc"
+  show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
+  
   install_component "$script" "$desc" || { failed+=("$comp"); for d in ${DEPENDENTS[$comp]}; do skip["$d"]=1; done; }
   mark_done "$comp"
 done
