@@ -13,7 +13,11 @@ if [[ "${UTIL_ENV_LOADED:-}" == "true" ]]; then
 fi
 readonly UTIL_ENV_LOADED="true"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Set SCRIPT_DIR only if not already set (to avoid readonly conflicts)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 if [[ -f "$SCRIPT_DIR/util-log.sh" ]]; then
   # shellcheck source=./util-log.sh
   source "$SCRIPT_DIR/util-log.sh"
