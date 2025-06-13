@@ -1,0 +1,2183 @@
+Based on my analysis of the `.github/prompts/optimize-performance.prompt.md` file, here are 5 key areas for improvement:
+
+## **1. Missing Project-Specific Performance Optimization Patterns**
+
+**Issue**: The prompt provides generic shell performance optimization techniques but doesn't integrate with the project's specific utility modules, environment detection patterns, or architectural decisions used throughout the Ubuntu development environment scripts.
+
+**Benefits**: Project-specific optimization patterns would ensure performance improvements leverage existing infrastructure, maintain consistency with the codebase architecture, and optimize for the specific use cases of multi-environment development setup.
+
+**Recommendation**:
+```bash
+# Project-Specific Performance Optimization Framework
+
+# Leverage existing utility modules for optimized operations
+optimize_with_project_utilities() {
+  local operation="$1"
+  shift
+  
+  # Use project's environment detection for optimized paths
+  local env_type
+  env_type=$(detect_environment)  # From util-env.sh
+  
+  case "$env_type" in
+    "$ENV_WSL")
+      # WSL2-specific optimizations
+      optimize_wsl2_operation "$operation" "$@"
+      ;;
+    "$ENV_DESKTOP")
+      # Desktop-specific optimizations
+      optimize_desktop_operation "$operation" "$@"
+      ;;
+    "$ENV_HEADLESS")
+      # Headless-specific optimizations
+      optimize_headless_operation "$operation" "$@"
+      ;;
+  esac
+}
+
+# Optimize package operations using project's package utilities
+optimize_package_operations() {
+  # Use project's package management utilities
+  source "$SCRIPT_DIR/util-packages.sh"
+  
+  # Batch package installations for better performance
+  local packages_to_install=()
+  local packages_to_check=("$@")
+  
+  # Pre-filter packages using optimized checking
+  for package in "${packages_to_check[@]}"; do
+    if ! is_package_installed "$package"; then
+      packages_to_install+=("$package")
+    fi
+  done
+  
+  # Single apt operation instead of multiple
+  if [ ${#packages_to_install[@]} -gt 0 ]; then
+    install_packages_batch "${packages_to_install[@]}"
+  fi
+}
+
+# Optimize logging operations using project's logging system
+optimize_logging_operations() {
+  # Use project's structured logging for better performance
+  source "$SCRIPT_DIR/util-log.sh"
+  
+  # Batch log operations to reduce I/O
+  local log_buffer=()
+  
+  batch_log() {
+    log_buffer+=("$1")
+    
+    # Flush buffer when it reaches threshold
+    if [ ${#log_buffer[@]} -ge 10 ]; then
+      flush_log_buffer
+    fi
+  }
+  
+  flush_log_buffer() {
+    if [ ${#log_buffer[@]} -gt 0 ]; then
+      printf '%s\n' "${log_buffer[@]}" | log_batch_entries
+      log_buffer=()
+    fi
+  }
+}
+
+# Environment-specific optimization patterns
+optimize_wsl2_operation() {
+  local operation="$1"
+  shift
+  
+  case "$operation" in
+    "file_access")
+      # Optimize WSL2 file access patterns
+      optimize_wsl2_file_access "$@"
+      ;;
+    "network")
+      # Optimize WSL2 network operations
+      optimize_wsl2_network "$@"
+      ;;
+    "process")
+      # Optimize WSL2 process operations
+      optimize_wsl2_process "$@"
+      ;;
+  esac
+}
+
+optimize_wsl2_file_access() {
+  local file_path="$1"
+  
+  # Use Linux filesystem for temporary operations
+  if [[ "$file_path" =~ ^/mnt/c/ ]]; then
+    # Copy to Linux filesystem for processing, then copy back
+    local temp_file="/tmp/$(basename "$file_path")"
+    cp "$file_path" "$temp_file"
+    process_file "$temp_file"
+    cp "$temp_file" "$file_path"
+    rm "$temp_file"
+  else
+    # Direct processing on Linux filesystem
+    process_file "$file_path"
+  fi
+}
+
+# Container-specific optimizations
+optimize_container_operations() {
+  # Use project's container utilities
+  source "$SCRIPT_DIR/util-containers.sh"
+  
+  # Optimize container image operations
+  optimize_container_images() {
+    # Use multi-stage builds for smaller images
+    # Leverage BuildKit for parallel operations
+    # Use project's container registry caching
+    
+    local build_args=(
+      "--build-arg" "BUILDKIT_INLINE_CACHE=1"
+      "--cache-from" "type=registry,ref=${REGISTRY_URL}/cache"
+      "--cache-to" "type=registry,ref=${REGISTRY_URL}/cache,mode=max"
+    )
+    
+    nerdctl build "${build_args[@]}" "$@"
+  }
+}
+```
+
+## **2. Inadequate Resource Management and Monitoring Framework**
+
+**Issue**: The prompt mentions basic resource optimization but lacks comprehensive resource monitoring, dynamic resource allocation, and adaptive performance tuning based on system conditions.
+
+**Benefits**: Advanced resource management would enable scripts to adapt to different system capabilities, prevent resource exhaustion, and optimize performance based on real-time system conditions.
+
+**Recommendation**:
+```bash
+# Comprehensive Resource Management Framework
+
+# Dynamic resource allocation based on system capabilities
+setup_dynamic_resource_management() {
+  # Detect system resources
+  local cpu_cores
+  cpu_cores=$(nproc)
+  local memory_gb
+  memory_gb=$(free -g | awk 'NR==2{print $2}')
+  local disk_space_gb
+  disk_space_gb=$(df / | awk 'NR==2{print int($4/1024/1024)}')
+  
+  # Calculate optimal resource allocation
+  export MAX_PARALLEL_JOBS=$((cpu_cores > 4 ? cpu_cores - 1 : cpu_cores))
+  export MAX_MEMORY_USAGE=$((memory_gb > 8 ? memory_gb * 70 / 100 : memory_gb * 50 / 100))
+  export CACHE_SIZE_MB=$((memory_gb > 4 ? 512 : 256))
+  export TEMP_SPACE_LIMIT_GB=$((disk_space_gb > 20 ? 5 : 2))
+  
+  log_info "Resource allocation: Jobs=$MAX_PARALLEL_JOBS, Memory=${MAX_MEMORY_USAGE}GB, Cache=${CACHE_SIZE_MB}MB"
+}
+
+# Real-time resource monitoring
+monitor_resource_usage() {
+  local operation_name="$1"
+  local pid="$2"
+  local monitor_interval="${3:-1}"
+  
+  local peak_memory=0
+  local peak_cpu=0
+  local start_time
+  start_time=$(date +%s.%N)
+  
+  while kill -0 "$pid" 2>/dev/null; do
+    # Monitor memory usage
+    local current_memory
+    current_memory=$(ps -p "$pid" -o rss= 2>/dev/null | awk '{print int($1/1024)}' || echo 0)
+    if [ "$current_memory" -gt "$peak_memory" ]; then
+      peak_memory=$current_memory
+    fi
+    
+    # Monitor CPU usage
+    local current_cpu
+    current_cpu=$(ps -p "$pid" -o %cpu= 2>/dev/null | awk '{print int($1)}' || echo 0)
+    if [ "$current_cpu" -gt "$peak_cpu" ]; then
+      peak_cpu=$current_cpu
+    fi
+    
+    # Check resource limits
+    if [ "$peak_memory" -gt "$((MAX_MEMORY_USAGE * 1024))" ]; then
+      log_warning "Operation '$operation_name' exceeding memory limit: ${peak_memory}MB"
+      # Implement memory pressure relief
+      trigger_memory_cleanup
+    fi
+    
+    sleep "$monitor_interval"
+  done
+  
+  local end_time
+  end_time=$(date +%s.%N)
+  local duration
+  duration=$(echo "$end_time - $start_time" | bc -l)
+  
+  # Log resource usage metrics
+  log_performance_metrics "$operation_name" "$duration" "$peak_memory" "$peak_cpu"
+}
+
+# Adaptive performance tuning
+adaptive_performance_tuning() {
+  local operation_type="$1"
+  
+  # Analyze system load
+  local load_average
+  load_average=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+  local load_threshold
+  load_threshold=$(echo "$MAX_PARALLEL_JOBS * 0.8" | bc -l)
+  
+  if (( $(echo "$load_average > $load_threshold" | bc -l) )); then
+    # High system load - reduce parallelism
+    export ADAPTIVE_PARALLEL_JOBS=$((MAX_PARALLEL_JOBS / 2))
+    log_info "High system load detected, reducing parallelism to $ADAPTIVE_PARALLEL_JOBS"
+  else
+    # Normal load - use full parallelism
+    export ADAPTIVE_PARALLEL_JOBS=$MAX_PARALLEL_JOBS
+  fi
+  
+  # Adjust I/O operations based on disk performance
+  local disk_io_wait
+  disk_io_wait=$(iostat -x 1 2 | tail -1 | awk '{print $10}' 2>/dev/null || echo 0)
+  
+  if (( $(echo "$disk_io_wait > 20" | bc -l) )); then
+    # High I/O wait - reduce concurrent file operations
+    export MAX_CONCURRENT_DOWNLOADS=2
+    export FILE_BUFFER_SIZE="64K"
+    log_info "High I/O wait detected, reducing concurrent operations"
+  else
+    # Normal I/O - use optimized settings
+    export MAX_CONCURRENT_DOWNLOADS=4
+    export FILE_BUFFER_SIZE="1M"
+  fi
+}
+
+# Resource cleanup and optimization
+optimize_resource_cleanup() {
+  # Clean up temporary files with size limits
+  cleanup_temp_files() {
+    local temp_usage
+    temp_usage=$(du -sm /tmp 2>/dev/null | awk '{print $1}' || echo 0)
+    
+    if [ "$temp_usage" -gt "$((TEMP_SPACE_LIMIT_GB * 1024))" ]; then
+      log_info "Cleaning up temporary files (${temp_usage}MB used)"
+      
+      # Remove old temporary files (older than 1 hour)
+      find /tmp -type f -name "*ubuntu-dev*" -mmin +60 -delete 2>/dev/null || true
+      
+      # Clean up package caches if needed
+      if command_exists apt-get; then
+        sudo apt-get clean 2>/dev/null || true
+      fi
+    fi
+  }
+  
+  # Memory pressure relief
+  trigger_memory_cleanup() {
+    # Clear system caches if running as root
+    if [ "$EUID" -eq 0 ]; then
+      sync
+      echo 1 > /proc/sys/vm/drop_caches 2>/dev/null || true
+    fi
+    
+    # Clear application caches
+    clear_application_caches
+  }
+  
+  # Optimize swap usage
+  optimize_swap_usage() {
+    local memory_usage_percent
+    memory_usage_percent=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+    
+    if [ "$memory_usage_percent" -gt 80 ]; then
+      # High memory usage - adjust swappiness
+      if [ -w /proc/sys/vm/swappiness ]; then
+        echo 10 > /proc/sys/vm/swappiness 2>/dev/null || true
+        log_info "Adjusted swappiness for high memory usage"
+      fi
+    fi
+  }
+}
+
+# Performance metrics collection
+collect_performance_metrics() {
+  local metrics_file="/tmp/performance_metrics_$$.json"
+  
+  {
+    echo "{"
+    echo "  \"timestamp\": \"$(date -Iseconds)\","
+    echo "  \"system_info\": {"
+    echo "    \"cpu_cores\": $(nproc),"
+    echo "    \"memory_gb\": $(free -g | awk 'NR==2{print $2}'),"
+    echo "    \"disk_space_gb\": $(df / | awk 'NR==2{print int($4/1024/1024)}'),"
+    echo "    \"load_average\": \"$(uptime | awk -F'load average:' '{print $2}' | xargs)\""
+    echo "  },"
+    echo "  \"resource_allocation\": {"
+    echo "    \"max_parallel_jobs\": $MAX_PARALLEL_JOBS,"
+    echo "    \"max_memory_usage_gb\": $MAX_MEMORY_USAGE,"
+    echo "    \"cache_size_mb\": $CACHE_SIZE_MB"
+    echo "  },"
+    echo "  \"performance_data\": []"
+    echo "}"
+  } > "$metrics_file"
+  
+  echo "$metrics_file"
+}
+```
+
+## **3. Missing Security-Aware Performance Optimization**
+
+**Issue**: The prompt focuses on performance optimization without considering security implications of optimization techniques, such as cache security, temporary file handling, and privilege escalation in performance-critical operations.
+
+**Benefits**: Security-aware performance optimization ensures that performance improvements don't introduce vulnerabilities, maintains secure handling of sensitive data in optimized operations, and provides audit trails for performance-related security decisions.
+
+**Recommendation**:
+```bash
+# Security-Aware Performance Optimization Framework
+
+# Secure caching with encryption and access controls
+implement_secure_caching() {
+  local cache_key="$1"
+  local cache_data="$2"
+  local cache_ttl="${3:-3600}"
+  local security_level="${4:-standard}"
+  
+  # Create secure cache directory with proper permissions
+  local cache_dir="/tmp/secure_cache_$$"
+  mkdir -p "$cache_dir"
+  chmod 700 "$cache_dir"
+  
+  local cache_file="$cache_dir/$(echo "$cache_key" | sha256sum | cut -d' ' -f1)"
+  
+  case "$security_level" in
+    "high")
+      # Encrypt cache data for sensitive operations
+      if command_exists gpg; then
+        echo "$cache_data" | gpg --symmetric --cipher-algo AES256 --batch --yes --passphrase "$CACHE_PASSPHRASE" > "$cache_file.gpg" 2>/dev/null
+        cache_file="$cache_file.gpg"
+      else
+        log_warning "GPG not available for high-security caching, using standard security"
+        echo "$cache_data" > "$cache_file"
+      fi
+      ;;
+    "standard")
+      # Standard secure file creation
+      (umask 077; echo "$cache_data" > "$cache_file")
+      ;;
+  esac
+  
+  # Set cache expiration
+  touch -d "+${cache_ttl} seconds" "$cache_file.expires" 2>/dev/null || true
+  
+  # Register for cleanup
+  echo "$cache_file" >> "$cache_dir/.cleanup_list"
+  
+  echo "$cache_file"
+}
+
+# Secure temporary file operations with performance optimization
+create_secure_temp_operations() {
+  local operation_type="$1"
+  shift
+  
+  # Create secure temporary workspace
+  local secure_temp_dir
+  secure_temp_dir=$(mktemp -d -t "ubuntu-dev-secure-XXXXXX")
+  chmod 700 "$secure_temp_dir"
+  
+  # Set up secure cleanup trap
+  trap "secure_cleanup_temp_dir '$secure_temp_dir'" EXIT INT TERM
+  
+  case "$operation_type" in
+    "batch_file_processing")
+      # Process multiple files securely and efficiently
+      secure_batch_file_processing "$secure_temp_dir" "$@"
+      ;;
+    "network_operations")
+      # Secure network operations
+```
+```bash
+      secure_network_operations "$secure_temp_dir" "$@"
+      ;;
+    "credential_operations")
+      # Handle credentials securely while maintaining performance
+      secure_credential_operations "$secure_temp_dir" "$@"
+      ;;
+  esac
+}
+
+secure_batch_file_processing() {
+  local secure_dir="$1"
+  shift
+  local files=("$@")
+  
+  # Validate all file paths before processing
+  for file in "${files[@]}"; do
+    if ! validate_secure_file_path "$file"; then
+      log_error "SECURITY: Invalid file path detected: $file"
+      return 1
+    fi
+  done
+  
+  # Process files in parallel with security constraints
+  local max_parallel=$((MAX_PARALLEL_JOBS > 4 ? 4 : MAX_PARALLEL_JOBS))  # Limit for security
+  local pids=()
+  local processed=0
+  
+  for file in "${files[@]}"; do
+    # Wait if we've reached the parallel limit
+    if [ ${#pids[@]} -ge "$max_parallel" ]; then
+      wait "${pids[0]}"
+      pids=("${pids[@]:1}")  # Remove first element
+    fi
+    
+    # Process file securely in background
+    (
+      local secure_temp_file="$secure_dir/processing_$$_$processed"
+      
+      # Copy to secure location for processing
+      if cp "$file" "$secure_temp_file" 2>/dev/null; then
+        # Process with security validation
+        process_file_securely "$secure_temp_file" "$file"
+        
+        # Secure cleanup
+        shred -u "$secure_temp_file" 2>/dev/null || rm -f "$secure_temp_file"
+      else
+        log_error "SECURITY: Failed to securely copy file: $file"
+        return 1
+      fi
+    ) &
+    
+    pids+=($!)
+    ((processed++))
+  done
+  
+  # Wait for all background processes
+  for pid in "${pids[@]}"; do
+    wait "$pid"
+  done
+}
+
+secure_network_operations() {
+  local secure_dir="$1"
+  shift
+  local urls=("$@")
+  
+  # Validate URLs for security
+  for url in "${urls[@]}"; do
+    if ! validate_secure_url "$url"; then
+      log_error "SECURITY: Invalid or insecure URL: $url"
+      return 1
+    fi
+  done
+  
+  # Implement secure parallel downloads with rate limiting
+  local max_concurrent=2  # Conservative for security
+  local pids=()
+  
+  for url in "${urls[@]}"; do
+    # Wait if we've reached the concurrent limit
+    if [ ${#pids[@]} -ge "$max_concurrent" ]; then
+      wait "${pids[0]}"
+      pids=("${pids[@]:1}")
+    fi
+    
+    # Secure download in background
+    (
+      local secure_download_file="$secure_dir/download_$(basename "$url")_$$"
+      
+      # Download with security constraints
+      if secure_download "$url" "$secure_download_file"; then
+        # Validate downloaded content
+        if validate_downloaded_content "$secure_download_file"; then
+          # Process downloaded file
+          process_downloaded_file "$secure_download_file"
+        else
+          log_error "SECURITY: Downloaded content validation failed: $url"
+          shred -u "$secure_download_file" 2>/dev/null || rm -f "$secure_download_file"
+          return 1
+        fi
+      else
+        log_error "SECURITY: Secure download failed: $url"
+        return 1
+      fi
+    ) &
+    
+    pids+=($!)
+  done
+  
+  # Wait for all downloads
+  for pid in "${pids[@]}"; do
+    wait "$pid"
+  done
+}
+
+secure_credential_operations() {
+  local secure_dir="$1"
+  local operation="$2"
+  shift 2
+  
+  # Create memory-backed filesystem for credential operations if available
+  local credential_workspace
+  if mount | grep -q tmpfs && [ -w /dev/shm ]; then
+    credential_workspace="/dev/shm/secure_creds_$$"
+    mkdir -p "$credential_workspace"
+    chmod 700 "$credential_workspace"
+  else
+    credential_workspace="$secure_dir/credentials"
+    mkdir -p "$credential_workspace"
+    chmod 700 "$credential_workspace"
+  fi
+  
+  # Set up secure cleanup for credentials
+  trap "secure_credential_cleanup '$credential_workspace'" EXIT INT TERM
+  
+  case "$operation" in
+    "batch_auth")
+      # Handle multiple authentication operations securely
+      secure_batch_authentication "$credential_workspace" "$@"
+      ;;
+    "token_refresh")
+      # Refresh tokens securely with caching
+      secure_token_refresh "$credential_workspace" "$@"
+      ;;
+  esac
+}
+
+# Security validation functions
+validate_secure_file_path() {
+  local file_path="$1"
+  
+  # Check for path traversal attempts
+  if [[ "$file_path" =~ \.\./|\.\.\\ ]]; then
+    return 1
+  fi
+  
+  # Check for null bytes
+  if [[ "$file_path" =~ $'\0' ]]; then
+    return 1
+  fi
+  
+  # Check for suspicious characters
+  if [[ "$file_path" =~ [;<>&|`$] ]]; then
+    return 1
+  fi
+  
+  # Ensure file exists and is readable
+  if [ ! -r "$file_path" ]; then
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_secure_url() {
+  local url="$1"
+  
+  # Ensure HTTPS for external URLs
+  if [[ "$url" =~ ^http://.*$ ]] && [[ ! "$url" =~ ^http://localhost.*$ ]] && [[ ! "$url" =~ ^http://127\.0\.0\.1.*$ ]]; then
+    log_error "SECURITY: HTTP not allowed for external URLs, use HTTPS: $url"
+    return 1
+  fi
+  
+  # Check for suspicious URL patterns
+  if [[ "$url" =~ [;<>&|`$] ]]; then
+    return 1
+  fi
+  
+  # Validate URL format
+  if ! [[ "$url" =~ ^https?://[a-zA-Z0-9.-]+.*$ ]]; then
+    return 1
+  fi
+  
+  return 0
+}
+
+secure_download() {
+  local url="$1"
+  local output_file="$2"
+  
+  # Use secure download with certificate validation
+  local download_args=(
+    "--max-time" "30"
+    "--retry" "3"
+    "--retry-delay" "1"
+    "--fail"
+    "--location"
+    "--silent"
+    "--show-error"
+  )
+  
+  # Add certificate validation
+  if [[ "$url" =~ ^https:// ]]; then
+    download_args+=("--cacert" "/etc/ssl/certs/ca-certificates.crt")
+  fi
+  
+  # Perform secure download
+  if command_exists curl; then
+    curl "${download_args[@]}" "$url" -o "$output_file"
+  elif command_exists wget; then
+    wget --timeout=30 --tries=3 --ca-certificate=/etc/ssl/certs/ca-certificates.crt "$url" -O "$output_file"
+  else
+    log_error "No secure download tool available"
+    return 1
+  fi
+}
+
+validate_downloaded_content() {
+  local file="$1"
+  
+  # Check file size (prevent zip bombs)
+  local file_size
+  file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+  local max_size=$((100 * 1024 * 1024))  # 100MB limit
+  
+  if [ "$file_size" -gt "$max_size" ]; then
+    log_error "SECURITY: Downloaded file exceeds size limit: ${file_size} bytes"
+    return 1
+  fi
+  
+  # Basic content validation
+  if [ "$file_size" -eq 0 ]; then
+    log_error "SECURITY: Downloaded file is empty"
+    return 1
+  fi
+  
+  # Check for suspicious content patterns
+  if file "$file" | grep -qi "executable\|script"; then
+    log_warning "SECURITY: Downloaded file appears to be executable, additional validation required"
+    # Additional validation could be added here
+  fi
+  
+  return 0
+}
+
+# Secure cleanup functions
+secure_cleanup_temp_dir() {
+  local temp_dir="$1"
+  
+  if [ -d "$temp_dir" ]; then
+    # Securely remove sensitive files
+    find "$temp_dir" -type f -exec shred -u {} \; 2>/dev/null || {
+      # Fallback if shred is not available
+      find "$temp_dir" -type f -exec rm -f {} \;
+    }
+    
+    # Remove directory
+    rmdir "$temp_dir" 2>/dev/null || rm -rf "$temp_dir"
+  fi
+}
+
+secure_credential_cleanup() {
+  local credential_dir="$1"
+  
+  if [ -d "$credential_dir" ]; then
+    # Extra secure cleanup for credential files
+    find "$credential_dir" -type f -exec shred -vfz -n 3 {} \; 2>/dev/null || {
+      # Multiple overwrite passes if shred supports it
+      find "$credential_dir" -type f -exec dd if=/dev/urandom of={} bs=1024 count=1 conv=notrunc \; 2>/dev/null || true
+      find "$credential_dir" -type f -exec rm -f {} \;
+    }
+    
+    # Remove directory
+    rmdir "$credential_dir" 2>/dev/null || rm -rf "$credential_dir"
+  fi
+}
+
+# Audit logging for security-related performance operations
+log_security_performance_event() {
+  local event_type="$1"
+  local operation="$2"
+  local details="$3"
+  local security_level="$4"
+  
+  local audit_log="/var/log/ubuntu-dev-security-performance.log"
+  local timestamp
+  timestamp=$(date -Iseconds)
+  
+  # Create audit log entry
+  local audit_entry
+  audit_entry=$(cat << EOF
+{
+  "timestamp": "$timestamp",
+  "event_type": "$event_type",
+  "operation": "$operation",
+  "details": "$details",
+  "security_level": "$security_level",
+  "user": "$(whoami)",
+  "pid": "$$",
+  "environment": "$(detect_environment)"
+}
+EOF
+)
+  
+  # Append to audit log with proper permissions
+  if [ -w "$(dirname "$audit_log")" ]; then
+    echo "$audit_entry" >> "$audit_log"
+    chmod 640 "$audit_log" 2>/dev/null || true
+  else
+    # Fallback to user log
+    echo "$audit_entry" >> "$HOME/.ubuntu-dev-security-audit.log"
+  fi
+}
+```
+
+## **4. Lack of Intelligent Performance Profiling and Adaptive Optimization**
+
+**Issue**: The prompt provides static optimization techniques but lacks intelligent profiling capabilities that can identify performance bottlenecks dynamically and adapt optimization strategies based on runtime analysis and historical performance data.
+
+**Benefits**: Intelligent profiling would enable automatic identification of performance bottlenecks, adaptive optimization based on system behavior, and continuous performance improvement through machine learning-like feedback loops.
+
+**Recommendation**:
+```bash
+# Intelligent Performance Profiling and Adaptive Optimization Framework
+
+# Dynamic performance profiler
+setup_intelligent_profiler() {
+  local profile_session_id="profile_$(date +%s)_$$"
+  local profile_dir="/tmp/performance_profiles"
+  mkdir -p "$profile_dir"
+  
+  export PROFILE_SESSION_ID="$profile_session_id"
+  export PROFILE_DATA_DIR="$profile_dir/$profile_session_id"
+  mkdir -p "$PROFILE_DATA_DIR"
+  
+  # Initialize profiling data structures
+  cat > "$PROFILE_DATA_DIR/session_info.json" << EOF
+{
+  "session_id": "$profile_session_id",
+  "start_time": "$(date -Iseconds)",
+  "system_info": {
+    "cpu_cores": $(nproc),
+    "memory_gb": $(free -g | awk 'NR==2{print $2}'),
+    "disk_type": "$(lsblk -d -o name,rota | awk 'NR==2{print ($2=="0" ? "SSD" : "HDD")}')",
+    "environment": "$(detect_environment)"
+  },
+  "operations": [],
+  "bottlenecks": [],
+  "optimizations_applied": []
+}
+EOF
+  
+  # Start background profiler
+  start_background_profiler &
+  export PROFILER_PID=$!
+}
+
+start_background_profiler() {
+  local sample_interval=0.5
+  local profile_data="$PROFILE_DATA_DIR/system_metrics.csv"
+  
+  # Create CSV header
+  echo "timestamp,cpu_percent,memory_mb,disk_io_read,disk_io_write,network_rx,network_tx,load_avg" > "$profile_data"
+  
+  while [ -f "$PROFILE_DATA_DIR/.profiling_active" ]; do
+    local timestamp
+    timestamp=$(date +%s.%N)
+    
+    # Collect system metrics
+    local cpu_percent
+    cpu_percent=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' || echo 0)
+    
+    local memory_mb
+    memory_mb=$(free -m | awk 'NR==2{print $3}')
+    
+    local disk_stats
+    disk_stats=$(iostat -d 1 2 | tail -1 | awk '{print $3","$4}' 2>/dev/null || echo "0,0")
+    
+    local network_stats
+    network_stats=$(cat /proc/net/dev | awk '/eth0|wlan0|enp/{print $2","$10; exit}' || echo "0,0")
+    
+    local load_avg
+    load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+    
+    # Write metrics to CSV
+    echo "$timestamp,$cpu_percent,$memory_mb,$disk_stats,$network_stats,$load_avg" >> "$profile_data"
+    
+    sleep "$sample_interval"
+  done
+}
+
+# Function-level performance profiling
+profile_function_performance() {
+  local function_name="$1"
+  shift
+  local args=("$@")
+  
+  # Create profiling marker
+  touch "$PROFILE_DATA_DIR/.profiling_active"
+  
+  local start_time
+  start_time=$(date +%s.%N)
+  local start_memory
+  start_memory=$(free -m | awk 'NR==2{print $3}')
+  
+  # Execute function with profiling
+  local exit_code=0
+  local function_output
+  function_output=$("$function_name" "${args[@]}" 2>&1) || exit_code=$?
+  
+  local end_time
+  end_time=$(date +%s.%N)
+  local end_memory
+  end_memory=$(free -m | awk 'NR==2{print $3}')
+  
+  # Calculate metrics
+  local duration
+  duration=$(echo "$end_time - $start_time" | bc -l)
+  local memory_delta=$((end_memory - start_memory))
+  
+  # Record function performance data
+  local function_profile
+  function_profile=$(cat << EOF
+{
+  "function_name": "$function_name",
+  "args": $(printf '%s\n' "${args[@
+```
+```bash
+  "args": $(printf '%s\n' "${args[@]}" | jq -R . | jq -s .),
+  "start_time": "$start_time",
+  "end_time": "$end_time",
+  "duration_seconds": $duration,
+  "memory_delta_mb": $memory_delta,
+  "exit_code": $exit_code,
+  "output_size": ${#function_output}
+}
+EOF
+)
+  
+  # Append to function profiles
+  echo "$function_profile" >> "$PROFILE_DATA_DIR/function_profiles.jsonl"
+  
+  # Analyze performance in real-time
+  analyze_function_performance "$function_name" "$duration" "$memory_delta" "$exit_code"
+  
+  # Clean up profiling marker
+  rm -f "$PROFILE_DATA_DIR/.profiling_active"
+  
+  # Return original output and exit code
+  echo "$function_output"
+  return $exit_code
+}
+
+# Real-time performance analysis and adaptive optimization
+analyze_function_performance() {
+  local function_name="$1"
+  local duration="$2"
+  local memory_delta="$3"
+  local exit_code="$4"
+  
+  # Load historical performance data
+  local historical_data="$PROFILE_DATA_DIR/../historical_performance.json"
+  local current_performance
+  
+  # Calculate performance metrics
+  local performance_score
+  performance_score=$(calculate_performance_score "$duration" "$memory_delta" "$exit_code")
+  
+  # Compare with historical performance
+  if [ -f "$historical_data" ]; then
+    local historical_avg
+    historical_avg=$(jq -r ".functions.\"$function_name\".avg_duration // 0" "$historical_data" 2>/dev/null || echo 0)
+    
+    if (( $(echo "$duration > $historical_avg * 1.5" | bc -l) )) && (( $(echo "$historical_avg > 0" | bc -l) )); then
+      # Performance regression detected
+      log_warning "PERFORMANCE: Function '$function_name' performance regression detected"
+      log_warning "Current: ${duration}s, Historical average: ${historical_avg}s"
+      
+      # Trigger adaptive optimization
+      trigger_adaptive_optimization "$function_name" "$duration" "$historical_avg"
+    fi
+  fi
+  
+  # Update historical data
+  update_historical_performance "$function_name" "$duration" "$memory_delta" "$performance_score"
+}
+
+calculate_performance_score() {
+  local duration="$1"
+  local memory_delta="$2"
+  local exit_code="$3"
+  
+  # Weighted performance scoring
+  local time_score
+  time_score=$(echo "scale=2; 100 / (1 + $duration)" | bc -l)
+  
+  local memory_score
+  if [ "$memory_delta" -le 0 ]; then
+    memory_score=100
+  else
+    memory_score=$(echo "scale=2; 100 / (1 + $memory_delta / 100)" | bc -l)
+  fi
+  
+  local success_score
+  if [ "$exit_code" -eq 0 ]; then
+    success_score=100
+  else
+    success_score=0
+  fi
+  
+  # Weighted average (time: 40%, memory: 30%, success: 30%)
+  local overall_score
+  overall_score=$(echo "scale=2; ($time_score * 0.4) + ($memory_score * 0.3) + ($success_score * 0.3)" | bc -l)
+  
+  echo "$overall_score"
+}
+
+trigger_adaptive_optimization() {
+  local function_name="$1"
+  local current_duration="$2"
+  local historical_avg="$3"
+  
+  log_info "ADAPTIVE: Triggering optimization for function '$function_name'"
+  
+  # Analyze bottleneck patterns
+  local bottleneck_type
+  bottleneck_type=$(identify_bottleneck_type "$function_name")
+  
+  case "$bottleneck_type" in
+    "cpu_bound")
+      apply_cpu_optimization "$function_name"
+      ;;
+    "io_bound")
+      apply_io_optimization "$function_name"
+      ;;
+    "memory_bound")
+      apply_memory_optimization "$function_name"
+      ;;
+    "network_bound")
+      apply_network_optimization "$function_name"
+      ;;
+    *)
+      apply_general_optimization "$function_name"
+      ;;
+  esac
+  
+  # Record optimization attempt
+  record_optimization_attempt "$function_name" "$bottleneck_type" "$(date -Iseconds)"
+}
+
+identify_bottleneck_type() {
+  local function_name="$1"
+  local metrics_file="$PROFILE_DATA_DIR/system_metrics.csv"
+  
+  # Analyze system metrics during function execution
+  local cpu_avg memory_avg io_avg
+  cpu_avg=$(tail -10 "$metrics_file" | awk -F',' '{sum+=$2} END {print sum/NR}' 2>/dev/null || echo 0)
+  memory_avg=$(tail -10 "$metrics_file" | awk -F',' '{sum+=$3} END {print sum/NR}' 2>/dev/null || echo 0)
+  io_avg=$(tail -10 "$metrics_file" | awk -F',' '{sum+=$4+$5} END {print sum/NR}' 2>/dev/null || echo 0)
+  
+  # Determine bottleneck type based on thresholds
+  if (( $(echo "$cpu_avg > 80" | bc -l) )); then
+    echo "cpu_bound"
+  elif (( $(echo "$io_avg > 50" | bc -l) )); then
+    echo "io_bound"
+  elif (( $(echo "$memory_avg > 80" | bc -l) )); then
+    echo "memory_bound"
+  elif grep -q "network\|download\|curl\|wget" <<< "$function_name"; then
+    echo "network_bound"
+  else
+    echo "general"
+  fi
+}
+
+apply_cpu_optimization() {
+  local function_name="$1"
+  
+  log_info "ADAPTIVE: Applying CPU optimization for '$function_name'"
+  
+  # Reduce CPU-intensive operations
+  export ADAPTIVE_CPU_OPTIMIZATION=true
+  export REDUCED_PARALLEL_PROCESSING=true
+  
+  # Enable CPU affinity for critical processes
+  if command_exists taskset; then
+    export USE_CPU_AFFINITY=true
+    export CPU_AFFINITY_MASK="0-$(($(nproc) - 1))"
+  fi
+  
+  # Enable process priority adjustment
+  export ADJUST_PROCESS_PRIORITY=true
+  export PROCESS_NICE_VALUE=-5
+}
+
+apply_io_optimization() {
+  local function_name="$1"
+  
+  log_info "ADAPTIVE: Applying I/O optimization for '$function_name'"
+  
+  # Optimize I/O operations
+  export ADAPTIVE_IO_OPTIMIZATION=true
+  export USE_LARGER_BUFFERS=true
+  export BUFFER_SIZE="1M"
+  
+  # Enable I/O scheduling optimization
+  export OPTIMIZE_IO_SCHEDULER=true
+  
+  # Reduce concurrent I/O operations
+  export MAX_CONCURRENT_IO=2
+  
+  # Enable I/O caching
+  export ENABLE_IO_CACHING=true
+  export IO_CACHE_SIZE="256M"
+}
+
+apply_memory_optimization() {
+  local function_name="$1"
+  
+  log_info "ADAPTIVE: Applying memory optimization for '$function_name'"
+  
+  # Memory optimization strategies
+  export ADAPTIVE_MEMORY_OPTIMIZATION=true
+  export ENABLE_MEMORY_POOLING=true
+  export REDUCE_MEMORY_FOOTPRINT=true
+  
+  # Enable garbage collection optimization
+  export OPTIMIZE_MEMORY_CLEANUP=true
+  export AGGRESSIVE_CLEANUP=true
+  
+  # Reduce memory-intensive operations
+  export STREAM_PROCESSING=true
+  export AVOID_LARGE_ARRAYS=true
+}
+
+apply_network_optimization() {
+  local function_name="$1"
+  
+  log_info "ADAPTIVE: Applying network optimization for '$function_name'"
+  
+  # Network optimization strategies
+  export ADAPTIVE_NETWORK_OPTIMIZATION=true
+  export ENABLE_CONNECTION_POOLING=true
+  export OPTIMIZE_DOWNLOAD_STRATEGY=true
+  
+  # Adjust timeouts and retry logic
+  export NETWORK_TIMEOUT=60
+  export MAX_RETRIES=5
+  export RETRY_BACKOFF=exponential
+  
+  # Enable compression and caching
+  export ENABLE_COMPRESSION=true
+  export ENABLE_NETWORK_CACHING=true
+}
+
+# Machine learning-inspired optimization learning
+update_historical_performance() {
+  local function_name="$1"
+  local duration="$2"
+  local memory_delta="$3"
+  local performance_score="$4"
+  
+  local historical_file="$PROFILE_DATA_DIR/../historical_performance.json"
+  
+  # Initialize historical data if it doesn't exist
+  if [ ! -f "$historical_file" ]; then
+    echo '{"functions": {}}' > "$historical_file"
+  fi
+  
+  # Update function statistics using exponential moving average
+  local updated_data
+  updated_data=$(jq --arg fname "$function_name" \
+                   --argjson duration "$duration" \
+                   --argjson memory "$memory_delta" \
+                   --argjson score "$performance_score" '
+    .functions[$fname] = {
+      "call_count": (.functions[$fname].call_count // 0) + 1,
+      "avg_duration": ((.functions[$fname].avg_duration // 0) * 0.8) + ($duration * 0.2),
+      "avg_memory": ((.functions[$fname].avg_memory // 0) * 0.8) + ($memory * 0.2),
+      "avg_score": ((.functions[$fname].avg_score // 0) * 0.8) + ($score * 0.2),
+      "last_updated": now | strftime("%Y-%m-%dT%H:%M:%SZ")
+    }
+  ' "$historical_file")
+  
+  echo "$updated_data" > "$historical_file"
+}
+
+# Performance optimization recommendation engine
+generate_optimization_recommendations() {
+  local analysis_period="${1:-7d}"
+  local recommendations_file="$PROFILE_DATA_DIR/optimization_recommendations.json"
+  
+  log_info "Generating performance optimization recommendations for period: $analysis_period"
+  
+  # Analyze historical performance data
+  local historical_file="$PROFILE_DATA_DIR/../historical_performance.json"
+  
+  if [ ! -f "$historical_file" ]; then
+    log_warning "No historical performance data available for recommendations"
+    return 1
+  fi
+  
+  # Generate recommendations based on patterns
+  local recommendations
+  recommendations=$(jq '
+    {
+      "generated_at": now | strftime("%Y-%m-%dT%H:%M:%SZ"),
+      "analysis_period": "'$analysis_period'",
+      "recommendations": [
+        .functions | to_entries[] | 
+        select(.value.avg_score < 70) |
+        {
+          "function": .key,
+          "current_score": .value.avg_score,
+          "avg_duration": .value.avg_duration,
+          "recommendation_type": (
+            if .value.avg_duration > 10 then "performance_critical"
+            elif .value.avg_memory > 500 then "memory_optimization"
+            elif .value.call_count > 100 then "frequent_function"
+            else "general_optimization"
+            end
+          ),
+          "suggested_actions": (
+            if .value.avg_duration > 10 then [
+              "Consider caching results",
+              "Implement parallel processing",
+              "Optimize algorithm complexity"
+            ]
+            elif .value.avg_memory > 500 then [
+              "Implement streaming processing",
+              "Reduce memory footprint",
+              "Add memory cleanup"
+            ]
+            else [
+              "Profile function in detail",
+              "Consider refactoring",
+              "Add performance monitoring"
+            ]
+            end
+          )
+        }
+      ]
+    }
+  ' "$historical_file")
+  
+  echo "$recommendations" > "$recommendations_file"
+  
+  # Display top recommendations
+  echo "🎯 Top Performance Optimization Recommendations:"
+  jq -r '.recommendations[] | "• \(.function): \(.recommendation_type) (Score: \(.current_score | floor))"' "$recommendations_file" | head -5
+  
+  echo "$recommendations_file"
+}
+
+# Automated performance testing and validation
+run_performance_regression_tests() {
+  local test_suite="${1:-standard}"
+  local baseline_file="$PROFILE_DATA_DIR/../performance_baseline.json"
+  
+  log_info "Running performance regression tests: $test_suite"
+  
+  # Define test functions based on suite
+  local test_functions=()
+  case "$test_suite" in
+    "standard")
+      test_functions=("install_packages" "setup_development_tools" "configure_environment")
+      ;;
+    "comprehensive")
+      test_functions=("install_packages" "setup_development_tools" "configure_environment" 
+                     "setup_containers" "install_languages" "configure_editors")
+      ;;
+    "critical")
+      test_functions=("install_packages" "setup_development_tools")
+      ;;
+  esac
+  
+  # Run performance tests
+  local test_results=()
+  for func in "${test_functions[@]}"; do
+    if declare -f "$func" >/dev/null 2>&1; then
+      log_info "Testing performance of: $func"
+      
+      # Run function with profiling
+      local result
+      result=$(profile_function_performance "$func" --dry-run 2>&1)
+      local exit_code=$?
+      
+      # Extract performance metrics
+      local duration
+      duration=$(echo "$result" | grep "duration_seconds" | awk '{print $2}' || echo 0)
+      
+      test_results+=("$func:$duration:$exit_code")
+    else
+      log_warning "Test function not found: $func"
+    fi
+  done
+  
+  # Compare with baseline if available
+  if [ -f "$baseline_file" ]; then
+    compare_with_baseline "${test_results[@]}"
+  else
+    create_performance_baseline "${test_results[@]}"
+  fi
+}
+
+compare_with_baseline() {
+  local test_results=("$@")
+  local baseline_file="$PROFILE_DATA_DIR/../performance_baseline.json"
+  local regression_threshold=1.2  # 20% slower is considered regression
+  
+  local regressions=()
+  local improvements=()
+  
+  for result in "${test_results[@]}"; do
+    IFS=':' read -r func_name duration exit_code <<< "$result"
+    
+    local baseline_duration
+    baseline_duration=$(jq -r ".functions.\"$func_name\".duration // 0" "$baseline_file")
+    
+    if (( $(echo "$baseline_duration > 0" | bc -l) )); then
+      local ratio
+      ratio=$(echo "scale=2; $duration / $baseline_duration" | bc -l)
+      
+      if (( $(echo "$ratio > $regression_threshold" | bc -l) )); then
+        regressions+=("$func_name: ${duration}s vs ${baseline_duration}s (${ratio}x slower)")
+      elif (( $(echo "$ratio < 0.8" | bc -l) )); then
+        improvements+=("$func_name: ${duration}s vs ${baseline_duration}s (${ratio}x faster)")
+      fi
+    fi
+  done
+  
+  # Report results
+  if [ ${#regressions[@]} -gt 0 ]; then
+    log_error "⚠️  Performance regressions detected:"
+    printf '%
+```
+```bash
+    printf '%s\n' "${regressions[@]}" | while read -r regression; do
+      log_error "  $regression"
+    done
+  fi
+  
+  if [ ${#improvements[@]} -gt 0 ]; then
+    log_success "🚀 Performance improvements detected:"
+    printf '%s\n' "${improvements[@]}" | while read -r improvement; do
+      log_success "  $improvement"
+    done
+  fi
+  
+  # Generate regression report
+  local report_file="$PROFILE_DATA_DIR/regression_report.json"
+  cat > "$report_file" << EOF
+{
+  "test_timestamp": "$(date -Iseconds)",
+  "baseline_file": "$baseline_file",
+  "regression_threshold": $regression_threshold,
+  "total_tests": ${#test_results[@]},
+  "regressions": $(printf '%s\n' "${regressions[@]}" | jq -R . | jq -s .),
+  "improvements": $(printf '%s\n' "${improvements[@]}" | jq -R . | jq -s .),
+  "test_results": $(printf '%s\n' "${test_results[@]}" | jq -R . | jq -s .)
+}
+EOF
+  
+  echo "$report_file"
+}
+
+create_performance_baseline() {
+  local test_results=("$@")
+  local baseline_file="$PROFILE_DATA_DIR/../performance_baseline.json"
+  
+  log_info "Creating performance baseline with ${#test_results[@]} test results"
+  
+  # Create baseline data structure
+  local baseline_data='{"created_at": "'$(date -Iseconds)'", "functions": {}}'
+  
+  for result in "${test_results[@]}"; do
+    IFS=':' read -r func_name duration exit_code <<< "$result"
+    
+    baseline_data=$(echo "$baseline_data" | jq --arg fname "$func_name" \
+                                              --argjson duration "$duration" \
+                                              --argjson exit_code "$exit_code" '
+      .functions[$fname] = {
+        "duration": $duration,
+        "exit_code": $exit_code,
+        "recorded_at": now | strftime("%Y-%m-%dT%H:%M:%SZ")
+      }
+    ')
+  done
+  
+  echo "$baseline_data" > "$baseline_file"
+  log_success "Performance baseline created: $baseline_file"
+}
+
+# Cleanup profiling session
+cleanup_profiling_session() {
+  local keep_data="${1:-false}"
+  
+  # Stop background profiler
+  if [ -n "${PROFILER_PID:-}" ]; then
+    kill "$PROFILER_PID" 2>/dev/null || true
+    wait "$PROFILER_PID" 2>/dev/null || true
+  fi
+  
+  # Remove active profiling marker
+  rm -f "$PROFILE_DATA_DIR/.profiling_active"
+  
+  # Archive or cleanup profiling data
+  if [ "$keep_data" = "true" ]; then
+    local archive_file="/tmp/performance_profile_$(date +%Y%m%d_%H%M%S).tar.gz"
+    tar -czf "$archive_file" -C "$(dirname "$PROFILE_DATA_DIR")" "$(basename "$PROFILE_DATA_DIR")"
+    log_info "Performance profile archived: $archive_file"
+  fi
+  
+  # Cleanup temporary profiling data
+  rm -rf "$PROFILE_DATA_DIR" 2>/dev/null || true
+  
+  # Reset profiling environment variables
+  unset PROFILE_SESSION_ID PROFILE_DATA_DIR PROFILER_PID
+}
+```
+
+## **5. Missing Integration with Modern Performance Monitoring and Observability Tools**
+
+**Issue**: The prompt focuses on traditional shell-based performance optimization without integrating with modern observability tools, distributed tracing, metrics collection systems, or cloud-native monitoring solutions that are essential for comprehensive performance management.
+
+**Benefits**: Integration with modern observability tools would provide comprehensive performance visibility, enable correlation with system-wide metrics, support distributed performance analysis, and facilitate integration with DevOps monitoring pipelines.
+
+**Recommendation**:
+```bash
+# Modern Observability and Performance Monitoring Integration
+
+# OpenTelemetry integration for distributed tracing
+setup_opentelemetry_tracing() {
+  local service_name="${1:-ubuntu-dev-setup}"
+  local trace_endpoint="${2:-http://localhost:4317}"
+  
+  # Check if OpenTelemetry tools are available
+  if ! command_exists otel-cli 2>/dev/null; then
+    log_info "Installing OpenTelemetry CLI for tracing..."
+    install_otel_cli
+  fi
+  
+  # Configure OpenTelemetry environment
+  export OTEL_SERVICE_NAME="$service_name"
+  export OTEL_EXPORTER_OTLP_ENDPOINT="$trace_endpoint"
+  export OTEL_RESOURCE_ATTRIBUTES="service.name=$service_name,service.version=1.0.0"
+  
+  # Initialize tracing session
+  local trace_id
+  trace_id=$(generate_trace_id)
+  export OTEL_TRACE_ID="$trace_id"
+  
+  log_info "OpenTelemetry tracing initialized: $trace_id"
+}
+
+# Trace function execution with OpenTelemetry
+trace_function_execution() {
+  local function_name="$1"
+  shift
+  local args=("$@")
+  
+  # Start span
+  local span_id
+  span_id=$(otel-cli span start \
+    --service "$OTEL_SERVICE_NAME" \
+    --name "$function_name" \
+    --kind "internal" \
+    --trace-id "$OTEL_TRACE_ID" 2>/dev/null || echo "")
+  
+  # Add span attributes
+  if [ -n "$span_id" ]; then
+    otel-cli span attribute \
+      --span-id "$span_id" \
+      --key "function.name" --value "$function_name" \
+      --key "function.args_count" --value "${#args[@]}" \
+      --key "environment.type" --value "$(detect_environment)" 2>/dev/null || true
+  fi
+  
+  local start_time
+  start_time=$(date +%s%N)
+  
+  # Execute function
+  local exit_code=0
+  local function_output
+  function_output=$("$function_name" "${args[@]}" 2>&1) || exit_code=$?
+  
+  local end_time
+  end_time=$(date +%s%N)
+  local duration_ns=$((end_time - start_time))
+  
+  # End span with results
+  if [ -n "$span_id" ]; then
+    otel-cli span attribute \
+      --span-id "$span_id" \
+      --key "function.exit_code" --value "$exit_code" \
+      --key "function.duration_ns" --value "$duration_ns" \
+      --key "function.output_size" --value "${#function_output}" 2>/dev/null || true
+    
+    if [ "$exit_code" -ne 0 ]; then
+      otel-cli span status \
+        --span-id "$span_id" \
+        --code "ERROR" \
+        --description "Function execution failed with exit code $exit_code" 2>/dev/null || true
+    fi
+    
+    otel-cli span end --span-id "$span_id" 2>/dev/null || true
+  fi
+  
+  # Return original output and exit code
+  echo "$function_output"
+  return $exit_code
+}
+
+# Prometheus metrics integration
+setup_prometheus_metrics() {
+  local metrics_port="${1:-9090}"
+  local metrics_file="/tmp/ubuntu_dev_metrics.prom"
+  
+  # Initialize metrics file
+  cat > "$metrics_file" << 'EOF'
+# HELP ubuntu_dev_function_duration_seconds Time spent executing functions
+# TYPE ubuntu_dev_function_duration_seconds histogram
+# HELP ubuntu_dev_function_calls_total Total number of function calls
+# TYPE ubuntu_dev_function_calls_total counter
+# HELP ubuntu_dev_system_resource_usage Current system resource usage
+# TYPE ubuntu_dev_system_resource_usage gauge
+EOF
+  
+  # Start metrics server if available
+  if command_exists python3; then
+    start_metrics_server "$metrics_port" "$metrics_file" &
+    export METRICS_SERVER_PID=$!
+    log_info "Prometheus metrics server started on port $metrics_port"
+  fi
+  
+  export PROMETHEUS_METRICS_FILE="$metrics_file"
+}
+
+record_prometheus_metric() {
+  local metric_type="$1"
+  local metric_name="$2"
+  local metric_value="$3"
+  local labels="$4"
+  
+  if [ -z "${PROMETHEUS_METRICS_FILE:-}" ]; then
+    return 0
+  fi
+  
+  local timestamp
+  timestamp=$(date +%s%3N)
+  
+  case "$metric_type" in
+    "counter")
+      echo "${metric_name}_total{$labels} $metric_value $timestamp" >> "$PROMETHEUS_METRICS_FILE"
+      ;;
+    "gauge")
+      echo "${metric_name}{$labels} $metric_value $timestamp" >> "$PROMETHEUS_METRICS_FILE"
+      ;;
+    "histogram")
+      # Simplified histogram recording
+      echo "${metric_name}_bucket{le=\"+Inf\",$labels} $metric_value $timestamp" >> "$PROMETHEUS_METRICS_FILE"
+      echo "${metric_name}_sum{$labels} $metric_value $timestamp" >> "$PROMETHEUS_METRICS_FILE"
+      echo "${metric_name}_count{$labels} 1 $timestamp" >> "$PROMETHEUS_METRICS_FILE"
+      ;;
+  esac
+}
+
+# Grafana dashboard integration
+generate_grafana_dashboard() {
+  local dashboard_file="/tmp/ubuntu_dev_dashboard.json"
+  
+  cat > "$dashboard_file" << 'EOF'
+{
+  "dashboard": {
+    "id": null,
+    "title": "Ubuntu Development Environment Performance",
+    "tags": ["ubuntu", "development", "performance"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Function Execution Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(ubuntu_dev_function_duration_seconds_sum[5m]) / rate(ubuntu_dev_function_duration_seconds_count[5m])",
+            "legendFormat": "{{function_name}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Duration (seconds)",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "System Resource Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "ubuntu_dev_system_resource_usage{resource=\"cpu\"}",
+            "legendFormat": "CPU %"
+          },
+          {
+            "expr": "ubuntu_dev_system_resource_usage{resource=\"memory\"}",
+            "legendFormat": "Memory %"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Function Call Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(ubuntu_dev_function_calls_total[5m])",
+            "legendFormat": "{{function_name}}"
+          }
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "5s"
+  }
+}
+EOF
+  
+  log_info "Grafana dashboard configuration generated: $dashboard_file"
+  echo "$dashboard_file"
+}
+
+# InfluxDB integration for time-series metrics
+setup_influxdb_integration() {
+  local influx_url="${1:-http://localhost:8086}"
+  local database="${2:-ubuntu_dev_metrics}"
+  local retention_policy="${3:-autogen}"
+  
+  export INFLUXDB_URL="$influx_url"
+  export INFLUXDB_DATABASE="$database"
+  export INFLUXDB_RETENTION_POLICY="$retention_policy"
+  
+  # Test InfluxDB connection
+  if command_exists curl; then
+    if curl -s "$influx_url/ping" >/dev/null 2>&1; then
+      log_success "InfluxDB connection established: $influx_url"
+      
+      # Create database if it doesn't exist
+      curl -s -X POST "$influx_url/query" \
+        --data-urlencode "q=CREATE DATABASE $database" >/dev/null 2>&1 || true
+    else
+      log_warning "InfluxDB not accessible at $influx_url"
+    fi
+  fi
+}
+
+write_influxdb_metric() {
+  local measurement="$1"
+  local tags="$2"
+  local fields="$3"
+  local timestamp="${4:-$(date +%s%9N)}"
+  
+  if [ -z "${INFLUXDB_URL:-}" ]; then
+    return 0
+  fi
+  
+  local line_protocol="${measurement},${tags} ${fields} ${timestamp}"
+  
+  # Write to InfluxDB
+  if command_exists curl; then
+    curl -s -X POST "${INFLUXDB_URL}/write?db=${INFLUXDB_DATABASE}&rp=${INFLUXDB_RETENTION_POLICY}" \
+      --data-binary "$line_protocol" >/dev/null 2>&1 || {
+      log_warning "Failed to write metric to InfluxDB: $measurement"
+    }
+  fi
+}
+
+# Elastic APM integration
+setup_elastic_apm() {
+  local apm_server_url="${1:-http://localhost:8200}"
+  local service_name="${2:-ubuntu-dev-setup}"
+  local environment="${3:-development}"
+  
+  export ELASTIC_APM_SERVER_URL="$apm_server_url"
+  export ELASTIC_APM_SERVICE_NAME="$service_name"
+  export ELASTIC_APM_ENVIRONMENT="$environment"
+  
+  # Test APM server connection
+  if command_exists curl; then
+    if curl -s "$apm_server_url/healthcheck" >/dev/null 2>&1; then
+      log_success "Elastic APM server accessible: $apm_server_url"
+    else
+      log_warning "Elastic APM server not accessible: $apm_server_url"
+    fi
+  fi
+}
+
+send_apm_transaction() {
+  local transaction_name="$1"
+  local transaction_type="$2"
+  local duration_ms="$3"
+  local result="${4:-success}"
+  
+  if [ -z "${ELASTIC_APM_SERVER_URL:-}" ]; then
+    return 0
+  fi
+  
+  local transaction_data
+  transaction_data=$(cat << EOF
+{
+  "transaction": {
+    "id": "$(uuidgen 2>/dev/null || echo "$(date +%s)-$$")",
+    "name": "$transaction_name",
+    "type": "$transaction_type",
+    "duration": $duration_ms,
+    "result": "$result",
+    "timestamp": $(date +%s%6N),
+    "context": {
+      "service": {
+        "name": "$ELASTIC_APM_SERVICE_NAME",
+        "environment": "$ELASTIC_APM_ENVIRONMENT"
+      },
+      "system": {
+        "hostname": "$(hostname)",
+        "platform": "$(uname -s)"
+      }
+    }
+  }
+}
+EOF
+)
+  
+  # Send to APM server
+  if command_exists curl; then
+    curl -s -X POST "${ELASTIC_APM_SERVER_URL}/intake/v2/events" \
+      -H "Content-Type: application/x-ndjson" \
+      --data "$transaction_data" >/dev/null 2>&1 || {
+```
+```bash
+      log_warning "Failed to send transaction to Elastic APM: $transaction_name"
+    }
+  fi
+}
+
+# Jaeger distributed tracing integration
+setup_jaeger_tracing() {
+  local jaeger_endpoint="${1:-http://localhost:14268/api/traces}"
+  local service_name="${2:-ubuntu-dev-setup}"
+  
+  export JAEGER_ENDPOINT="$jaeger_endpoint"
+  export JAEGER_SERVICE_NAME="$service_name"
+  
+  # Test Jaeger connection
+  if command_exists curl; then
+    local jaeger_health_url="${jaeger_endpoint%/api/traces}/health"
+    if curl -s "$jaeger_health_url" >/dev/null 2>&1; then
+      log_success "Jaeger tracing endpoint accessible: $jaeger_endpoint"
+    else
+      log_warning "Jaeger tracing endpoint not accessible: $jaeger_endpoint"
+    fi
+  fi
+}
+
+create_jaeger_span() {
+  local operation_name="$1"
+  local parent_span_id="${2:-}"
+  local start_time="${3:-$(date +%s%6N)}"
+  
+  local span_id
+  span_id=$(printf "%016x" $((RANDOM * RANDOM)) 2>/dev/null || echo "$(date +%s%6N)")
+  local trace_id
+  trace_id=$(printf "%032x" $((RANDOM * RANDOM * RANDOM)) 2>/dev/null || echo "$(date +%s%6N)00000000")
+  
+  # Create span data structure
+  local span_data
+  span_data=$(cat << EOF
+{
+  "traceID": "$trace_id",
+  "spanID": "$span_id",
+  "parentSpanID": "$parent_span_id",
+  "operationName": "$operation_name",
+  "startTime": $start_time,
+  "duration": 0,
+  "tags": [
+    {"key": "service.name", "value": "$JAEGER_SERVICE_NAME"},
+    {"key": "environment", "value": "$(detect_environment)"},
+    {"key": "hostname", "value": "$(hostname)"}
+  ],
+  "process": {
+    "serviceName": "$JAEGER_SERVICE_NAME",
+    "tags": [
+      {"key": "hostname", "value": "$(hostname)"},
+      {"key": "pid", "value": "$$"}
+    ]
+  }
+}
+EOF
+)
+  
+  # Store span data for later completion
+  echo "$span_data" > "/tmp/jaeger_span_${span_id}.json"
+  echo "$span_id"
+}
+
+finish_jaeger_span() {
+  local span_id="$1"
+  local end_time="${2:-$(date +%s%6N)}"
+  local status="${3:-ok}"
+  
+  local span_file="/tmp/jaeger_span_${span_id}.json"
+  if [ ! -f "$span_file" ]; then
+    log_warning "Jaeger span file not found: $span_id"
+    return 1
+  fi
+  
+  # Update span with end time and duration
+  local updated_span
+  updated_span=$(jq --argjson end_time "$end_time" \
+                    --arg status "$status" '
+    .duration = ($end_time - .startTime) |
+    .tags += [{"key": "status", "value": $status}]
+  ' "$span_file")
+  
+  # Send span to Jaeger
+  if [ -n "${JAEGER_ENDPOINT:-}" ] && command_exists curl; then
+    local jaeger_payload
+    jaeger_payload=$(echo "$updated_span" | jq '{data: [.]}')
+    
+    curl -s -X POST "$JAEGER_ENDPOINT" \
+      -H "Content-Type: application/json" \
+      --data "$jaeger_payload" >/dev/null 2>&1 || {
+      log_warning "Failed to send span to Jaeger: $span_id"
+    }
+  fi
+  
+  # Cleanup span file
+  rm -f "$span_file"
+}
+
+# DataDog APM integration
+setup_datadog_apm() {
+  local dd_agent_host="${1:-localhost}"
+  local dd_agent_port="${2:-8126}"
+  local service_name="${3:-ubuntu-dev-setup}"
+  local environment="${4:-development}"
+  
+  export DD_AGENT_HOST="$dd_agent_host"
+  export DD_TRACE_AGENT_PORT="$dd_agent_port"
+  export DD_SERVICE="$service_name"
+  export DD_ENV="$environment"
+  export DD_VERSION="1.0.0"
+  
+  # Test DataDog agent connection
+  if command_exists curl; then
+    if curl -s "http://${dd_agent_host}:${dd_agent_port}/info" >/dev/null 2>&1; then
+      log_success "DataDog APM agent accessible: ${dd_agent_host}:${dd_agent_port}"
+    else
+      log_warning "DataDog APM agent not accessible: ${dd_agent_host}:${dd_agent_port}"
+    fi
+  fi
+}
+
+send_datadog_trace() {
+  local trace_data="$1"
+  
+  if [ -z "${DD_AGENT_HOST:-}" ] || [ -z "${DD_TRACE_AGENT_PORT:-}" ]; then
+    return 0
+  fi
+  
+  local dd_trace_url="http://${DD_AGENT_HOST}:${DD_TRACE_AGENT_PORT}/v0.4/traces"
+  
+  if command_exists curl; then
+    curl -s -X POST "$dd_trace_url" \
+      -H "Content-Type: application/msgpack" \
+      -H "Datadog-Meta-Lang: shell" \
+      -H "Datadog-Meta-Lang-Version: $(bash --version | head -1)" \
+      --data "$trace_data" >/dev/null 2>&1 || {
+      log_warning "Failed to send trace to DataDog APM"
+    }
+  fi
+}
+
+# New Relic integration
+setup_newrelic_monitoring() {
+  local license_key="$1"
+  local app_name="${2:-ubuntu-dev-setup}"
+  
+  if [ -z "$license_key" ]; then
+    log_warning "New Relic license key not provided"
+    return 1
+  fi
+  
+  export NEW_RELIC_LICENSE_KEY="$license_key"
+  export NEW_RELIC_APP_NAME="$app_name"
+  export NEW_RELIC_ENABLED=true
+  
+  log_success "New Relic monitoring configured for: $app_name"
+}
+
+send_newrelic_metric() {
+  local metric_name="$1"
+  local metric_value="$2"
+  local metric_type="${3:-gauge}"
+  local timestamp="${4:-$(date +%s)}"
+  
+  if [ -z "${NEW_RELIC_LICENSE_KEY:-}" ]; then
+    return 0
+  fi
+  
+  local metric_data
+  metric_data=$(cat << EOF
+{
+  "metrics": [
+    {
+      "name": "$metric_name",
+      "type": "$metric_type",
+      "value": $metric_value,
+      "timestamp": $timestamp,
+      "attributes": {
+        "service.name": "$NEW_RELIC_APP_NAME",
+        "environment": "$(detect_environment)",
+        "hostname": "$(hostname)"
+      }
+    }
+  ]
+}
+EOF
+)
+  
+  if command_exists curl; then
+    curl -s -X POST "https://metric-api.newrelic.com/metric/v1" \
+      -H "Content-Type: application/json" \
+      -H "Api-Key: $NEW_RELIC_LICENSE_KEY" \
+      --data "$metric_data" >/dev/null 2>&1 || {
+      log_warning "Failed to send metric to New Relic: $metric_name"
+    }
+  fi
+}
+
+# Comprehensive observability wrapper function
+with_observability() {
+  local function_name="$1"
+  shift
+  local args=("$@")
+  
+  # Start timing
+  local start_time
+  start_time=$(date +%s%N)
+  local start_time_seconds
+  start_time_seconds=$(date +%s)
+  
+  # Initialize tracing spans
+  local otel_span_id=""
+  local jaeger_span_id=""
+  
+  # Start OpenTelemetry span
+  if [ -n "${OTEL_TRACE_ID:-}" ]; then
+    otel_span_id=$(otel-cli span start \
+      --service "$OTEL_SERVICE_NAME" \
+      --name "$function_name" \
+      --kind "internal" \
+      --trace-id "$OTEL_TRACE_ID" 2>/dev/null || echo "")
+  fi
+  
+  # Start Jaeger span
+  if [ -n "${JAEGER_ENDPOINT:-}" ]; then
+    jaeger_span_id=$(create_jaeger_span "$function_name" "" "$start_time")
+  fi
+  
+  # Execute function
+  local exit_code=0
+  local function_output
+  function_output=$("$function_name" "${args[@]}" 2>&1) || exit_code=$?
+  
+  # Calculate duration
+  local end_time
+  end_time=$(date +%s%N)
+  local duration_ns=$((end_time - start_time))
+  local duration_ms=$((duration_ns / 1000000))
+  local duration_seconds=$(echo "scale=3; $duration_ns / 1000000000" | bc -l)
+  
+  # Record metrics to all configured systems
+  local labels="function_name=\"$function_name\",environment=\"$(detect_environment)\""
+  
+  # Prometheus metrics
+  if [ -n "${PROMETHEUS_METRICS_FILE:-}" ]; then
+    record_prometheus_metric "histogram" "ubuntu_dev_function_duration_seconds" "$duration_seconds" "$labels"
+    record_prometheus_metric "counter" "ubuntu_dev_function_calls" "1" "$labels"
+  fi
+  
+  # InfluxDB metrics
+  if [ -n "${INFLUXDB_URL:-}" ]; then
+    write_influxdb_metric "function_performance" \
+      "function_name=$function_name,environment=$(detect_environment)" \
+      "duration_seconds=$duration_seconds,exit_code=$exit_code"
+  fi
+  
+  # Elastic APM transaction
+  if [ -n "${ELASTIC_APM_SERVER_URL:-}" ]; then
+    local result="success"
+    if [ "$exit_code" -ne 0 ]; then
+      result="error"
+    fi
+    send_apm_transaction "$function_name" "function" "$duration_ms" "$result"
+  fi
+  
+  # New Relic metrics
+  if [ -n "${NEW_RELIC_LICENSE_KEY:-}" ]; then
+    send_newrelic_metric "Custom/Function/Duration" "$duration_seconds" "gauge"
+    send_newrelic_metric "Custom/Function/Calls" "1" "count"
+  fi
+  
+  # Finish tracing spans
+  if [ -n "$otel_span_id" ]; then
+    otel-cli span attribute \
+      --span-id "$otel_span_id" \
+      --key "function.exit_code" --value "$exit_code" \
+      --key "function.duration_seconds" --value "$duration_seconds" 2>/dev/null || true
+    otel-cli span end --span-id "$otel_span_id" 2>/dev/null || true
+  fi
+  
+  if [ -n "$jaeger_span_id" ]; then
+    local status="ok"
+    if [ "$exit_code" -ne 0 ]; then
+      status="error"
+    fi
+    finish_jaeger_span "$jaeger_span_id" "$end_time" "$status"
+  fi
+  
+  # Log performance summary
+  log_info "OBSERVABILITY: $function_name completed in ${duration_seconds}s (exit_code: $exit_code)"
+  
+  # Return original output and exit code
+  echo "$function_output"
+  return $exit_code
+}
+
+# Utility functions for observability setup
+install_otel_cli() {
+  local otel_version="0.4.0"
+  local otel_url="https://github.com/equinix-labs/otel-cli/releases/download/v${otel_version}/otel-cli_${otel_version}_linux_amd64.tar.gz"
+  
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  
+  if curl -sL "$otel_url" | tar -xz -C "$temp_dir"; then
+    sudo mv "$temp_dir/otel-cli" /usr/local/bin/
+    chmod +x /usr/local/bin/otel-cli
+    log_success "OpenTelemetry CLI installed successfully"
+  else
+    log_error "Failed to install OpenTelemetry CLI"
+    return 1
+  fi
+  
+  rm -rf "$temp_dir"
+}
+
+start_metrics_server() {
+  local port="$1"
+  local metrics_file="$2"
+  
+  python3 -c "
+import http.server
+import socketserver
+import os
+
+class MetricsHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/metrics':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            try:
+                with open('$metrics_file', 'r') as f:
+                    self.wfile.write(f.read().encode())
+            except FileNotFoundError:
+                self.wfile.write(b'# No metrics available\n')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+with socketserver.TCPServer(('', $port), MetricsHandler) as httpd:
+    httpd.serve_forever()
+" &
+}
+
+generate_trace_id() {
+  if command_exists uuidgen; then
+    uuidgen | tr -d '-'
+  else
+    printf "%032x" $((RANDOM * RANDOM * RANDOM * RANDOM)) 2>/dev/null || echo "$(date +%s%N)"
+  fi
+}
+
+# Cleanup observability resources
+cleanup_observability() {
+  # Stop metrics server
+  if [ -n "${METRICS_SERVER_PID:-}" ]; then
+    kill "$METRICS_SERVER_PID" 2>/dev/null || true
+    wait "$METRICS_SERVER_PID" 2>/dev/null || true
+  fi
+  
+  # Cleanup temporary files
+  rm -f /tmp/jaeger_span_*.json
+  rm -f /tmp/ubuntu_dev_metrics.prom
+  
+  # Reset environment variables
+  unset OTEL_SERVICE_NAME OTEL_EXPORTER_OTLP_ENDPOINT OTEL_RESOURCE_ATTRIBUTES OTEL_TRACE_ID
+  unset PROMETHEUS_METRICS_FILE METRICS_SERVER_PID
+  unset INFLUXDB_URL INFLUXDB_DATABASE INFLUXDB_RETENTION_POLICY
+  unset ELASTIC_APM_SERVER_URL ELASTIC_APM_SERVICE_NAME ELASTIC_APM_ENVIRONMENT
+  unset JAEGER_ENDPOINT JAEGER_SERVICE_NAME
+  unset DD_AGENT_HOST DD_TRACE_AGENT_PORT DD_SERVICE DD_ENV DD_VERSION
+  unset NEW_RELIC_LICENSE_KEY NEW_RELIC_APP_NAME NEW_RELIC_ENABLED
+  
+  log_info "Observability resources cleaned up"
+}
+```
+
+---
+
+## **Summary**
+
+The `.github/prompts/optimize-performance.prompt.md` file provides a solid foundation for shell script performance optimization, but it has several significant gaps that limit its effectiveness in modern development environments. Here's a comprehensive summary of the identified issues and their solutions:
+
+## **Key Issues Identified**
+
+### 1. **Limited Scope of Performance Bottleneck Analysis**
+- **Problem**: Only covers basic optimization techniques without deep system-level analysis
+- **Solution**: Implemented comprehensive bottleneck detection including CPU profiling, memory analysis, I/O patterns, and network performance monitoring
+
+### 2. **Lack of Environment-Specific Optimization Strategies**
+- **Problem**: Doesn't account for WSL2, Desktop, and Headless environment differences
+- **Solution**: Added environment-aware optimization with specific strategies for each platform type
+
+### 3. **Missing Security Considerations in Performance Optimization**
+- **Problem**: Performance improvements could introduce security vulnerabilities
+- **Solution**: Integrated security-first performance optimization with validation, secure parallel processing, and audit logging
+
+### 4. **Absence of Intelligent Performance Profiling**
+- **Problem**: Static optimization without adaptive learning or dynamic analysis
+- **Solution**: Built intelligent profiling framework with machine learning-inspired optimization, historical performance tracking, and automated regression testing
+
+### 5. **No Integration with Modern Observability Tools**
+- **Problem**: Limited to traditional shell-based monitoring without modern APM integration
+- **Solution**: Comprehensive observability integration with OpenTelemetry, Prometheus, Grafana, InfluxDB, Elastic APM, Jaeger, DataDog, and New Relic
+
+## **Enhanced Capabilities Provided**
+
+### **Advanced Performance Analysis**
+```bash
+# Example usage of enhanced performance optimization
+setup_intelligent_profiler
+setup_opentelemetry_tracing "ubuntu-dev-setup"
+setup_prometheus_metrics 9090
+
+# Profile function with comprehensive monitoring
+with_observability install_development_tools --parallel --secure
+
+# Generate optimization recommendations
+generate_optimization_recommendations "7d"
+
+# Run regression tests
+run_performance_regression_tests "comprehensive"
+```
+
+### **Security-Aware Performance Optimization**
+```bash
+# Secure parallel processing with performance optimization
+secure_parallel_processing "batch_operations" \
+  "file1.txt" "file2.txt" "file3.txt"
+
+# Performance optimization with security validation
+optimize_with_security_constraints "network_operations" \
+  "https://api1.example.com" "https://api2.example.com"
+```
+
+### **Intelligent Adaptive Optimization**
+```bash
+# Automatic performance adaptation based on historical data
+profile_function_performance "setup_containers" --enable-docker
+# System automatically detects performance regression and applies optimizations
+
+# Machine learning-inspired performance improvement
+update_historical_performance "setup_containers" 15.2 256 85.5
+# System learns from performance patterns and suggests improvements
+```
+
+### **Modern Observability Integration**
+```bash
+# Comprehensive monitoring setup
+setup_opentelemetry_tracing "ubuntu-dev-setup" "http://jaeger:4317"
+setup_prometheus_metrics 9090
+setup_elastic_apm "http://apm-server:8200"
+setup_datadog_apm "datadog-agent" 8126
+
+# Execute functions with full observability
+with_observability setup_development_environment --all
+# Automatically sends metrics to all configured monitoring systems
+```
+
+## **Benefits of the Enhanced Approach**
+
+1. **Comprehensive Performance Visibility**: Full-stack performance monitoring from system metrics to application-level tracing
+
+2. **Security-First Optimization**: Performance improvements that maintain or enhance security posture
+
+3. **Adaptive Intelligence**: Self-improving performance optimization based on historical data and usage patterns
+
+4. **Environment Awareness**: Optimizations tailored to specific deployment environments (WSL2, Desktop, Headless)
+
+5. **Modern DevOps Integration**: Seamless integration with contemporary monitoring and observability tools
+
+6. **Automated Regression Detection**: Continuous performance monitoring with automatic regression alerts
+
+7. **Actionable Insights**: AI-driven recommendations for performance improvements based on real usage data
+
+## **Implementation Recommendations**
+
+### **For Immediate Implementation**
+```bash:setup-enhanced-performance.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Source the enhanced performance optimization modules
+source "$(dirname "$0")/enhanced-performance-optimization.sh"
+
+# Initialize comprehensive performance monitoring
+main() {
+  log_info "Setting up enhanced performance optimization..."
+  
+  # Setup intelligent profiling
+  setup_intelligent_profiler
+  
+  # Configure observability based on available tools
+  if command_exists docker && docker ps >/dev/null 2>&1; then
+    setup_opentelemetry_tracing "ubuntu-dev-setup"
+    setup_prometheus_metrics 9090
+  fi
+  
+  # Enable security-aware optimization
+  export ENABLE_SECURITY_OPTIMIZATION=true
+  export ENABLE_ADAPTIVE_OPTIMIZATION=true
+  
+  log_success "Enhanced performance optimization ready"
+  
+  # Example: Run development setup with full monitoring
+  with_observability setup_development_environment "$@"
+  
+  # Generate performance report
+  generate_optimization_recommendations "1d"
+  
+  # Cleanup
+  cleanup_profiling_session true
+  cleanup_observability
+}
+
+main "$@"
+```
+
+### **For Long-term Integration**
+1. **Integrate with CI/CD pipelines** for continuous performance monitoring
+2. **Set up alerting** for performance regressions in production environments
+3. **Implement performance budgets** with automatic optimization triggers
+4. **Create performance dashboards** for development team visibility
+5. **Establish performance SLAs** with automated enforcement
+
+## **Conclusion**
+
+The enhanced performance optimization framework transforms the basic shell script optimization prompt into a comprehensive, enterprise-grade performance management solution. It addresses modern development needs including security, observability, adaptive intelligence, and multi-environment support while maintaining the simplicity and effectiveness of shell-based automation.
+
+This approach ensures that performance optimization becomes an integral part of the development workflow rather than an afterthought, leading to more reliable, secure, and performant development environments across all deployment scenarios.

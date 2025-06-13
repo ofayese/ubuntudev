@@ -12,7 +12,6 @@
         "dockerfile": true,
         "ignore": true
     },
-    
     // Copilot Chat Settings
     "github.copilot.chat.enable": true,
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
@@ -22,7 +21,6 @@
     "github.copilot.chat.languageContext.typescript.enabled": true,
     "github.copilot.chat.localeOverride": "en",
     "github.copilot.chat.welcomeMessage": "always",
-    
     // Instruction and Prompt Files Configuration
     "chat.promptFiles": true,
     "chat.promptFilesLocations": {
@@ -31,7 +29,6 @@
     "chat.instructionsFilesLocations": {
         ".github/instructions": true
     },
-    
     // Editor Enhancement Settings
     "editor.inlineSuggest.enabled": true,
     "editor.inlineSuggest.showToolbar": "onHover",
@@ -46,22 +43,21 @@
     "editor.guides.bracketPairs": true,
     "editor.minimap.enabled": true,
     "editor.renderWhitespace": "selection",
-    "editor.rulers": [80, 120],
+    "editor.rulers": [
+        80,
+        120
+    ],
     "editor.formatOnSave": true,
     "editor.formatOnPaste": true,
     "editor.formatOnType": true,
-    
     // Inline Chat Settings
     "inlineChat.enableV2": true,
     "inlineChat.mode": "preview",
-    
     // Auto-approve for trusted tools
     "chat.tools.autoApprove": true,
-    
     // Other tool settings
     "codium.codeCompletion.enable": true,
-    "CodeGPT.apiKey": "CodeGPT Plus",
-    
+    "CodeGPT.apiKey": "CodeGPT Plus Beta",
     // File associations for better Copilot support
     "files.associations": {
         "*.prompt.md": "markdown",
@@ -73,7 +69,6 @@
         "esac",
         "pipefail"
     ],
-    
     // Window and workspace settings
     "window.zoomLevel": 0,
     "workbench.editor.enablePreview": true,

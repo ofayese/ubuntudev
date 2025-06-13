@@ -1,164 +1,470 @@
-#!/bin/bash
-# === Python Version Compatibility Fix ===
-SUPPORTED_PYTHON_VERSION="3.11.9"
-PYENV_ROOT="${HOME}/.pyenv"
-ensure_pyenv_installed() {
-  if ! command -v pyenv >/dev/null 2>&1; then
-    echo "🛠️ Installing pyenv..."
-    curl https://pyenv.run | bash
-    export PATH="$PYENV_ROOT/bin:$PATH"
-    eval "$(pyenv init -)"
-  fi
-}
-install_supported_python() {
-  ensure_pyenv_installed
-  if ! pyenv versions --bare | grep -q "^${SUPPORTED_PYTHON_VERSION}$"; then
-    echo "⬇️  Installing Python ${SUPPORTED_PYTHON_VERSION} with pyenv..."
-    pyenv install -s "${SUPPORTED_PYTHON_VERSION}"
-  fi
-  pyenv global "${SUPPORTED_PYTHON_VERSION}"
-}
-# Check if supported Python present, otherwise install via pyenv
-if ! command -v python3.11 >/dev/null 2>&1; then
-  install_supported_python
-else
-  echo "✅ Supported Python version already present ($(python3.11 --version 2>&1))"
-fi
-
+#!/usr/bin/env bash
+# setup-node-python.sh - Set up Node.js and Python development environments
 set -euo pipefail
 
-LOGFILE="/var/log/ubuntu-dev-tools.log"
-exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== [setup-node-python.sh] Started at $(date) ==="
+# Source utility scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/util-log.sh"
+source "${SCRIPT_DIR}/util-env.sh"
+source "${SCRIPT_DIR}/util-versions.sh"
+
+# --- Python Version Configuration ---
+declare -A PYTHON_CONFIG=(
+  ["primary_version"]="3.12"
+  ["fallback_versions"]="3.11 3.10"
+  ["minimum_version"]="3.10"
+)
+
+# --- Node.js Version Configuration ---
+declare -A NODE_CONFIG=(
+  ["lts_version"]="lts/*"
+  ["current_version"]="node"
+  ["minimum_version"]="18.0.0"
+)
+
+# --- Network Operation Configuration ---
+declare -A NETWORK_CONFIG=(
+  ["timeout"]="30"
+  ["retries"]="3"
+  ["retry_delay"]="5"
+  ["user_agent"]="Ubuntu-DevTools-Setup/1.0"
+)
+
+init_logging
 
 # --- Detect if running in WSL ---
-IS_WSL=0
-if grep -qi microsoft /proc/version 2>/dev/null || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
-  IS_WSL=1
-  echo "🐧 WSL environment detected."
+detect_wsl
+IS_WSL=$?
+if [[ $IS_WSL -eq 1 ]]; then
+  log_info "WSL environment detected"
 fi
+
+# --- System Resource Validation ---
+validate_system_resources() {
+  log_info "Validating system resources for installation..."
+
+  # Check memory
+  local memory_gb
+  memory_gb=$(free -g | awk '/^Mem:/ {print $2}')
+
+  # Check disk space
+  local disk_gb
+  disk_gb=$(df "$HOME" | awk 'NR==2 {print int($4/1024/1024)}')
+
+  # Minimum requirements
+  local min_memory=2
+  local min_disk=5
+
+  log_info "System resources: ${memory_gb}GB RAM, ${disk_gb}GB available disk space"
+
+  if [[ $memory_gb -lt $min_memory ]]; then
+    log_warning "Low memory detected: ${memory_gb}GB (recommended: ${min_memory}GB)"
+    log_info "Consider closing unnecessary applications during installation"
+  fi
+
+  if [[ $disk_gb -lt $min_disk ]]; then
+    log_error "Insufficient disk space: ${disk_gb}GB (required: ${min_disk}GB)"
+    log_info "Please free up disk space before continuing"
+    return 1
+  fi
+
+  return 0
+}
+
+# --- Enhanced Network Operations ---
+download_with_retry() {
+  local url="$1"
+  local output_file="$2"
+  local description="$3"
+  local max_attempts="${NETWORK_CONFIG[retries]}"
+  local timeout="${NETWORK_CONFIG[timeout]}"
+  local retry_delay="${NETWORK_CONFIG[retry_delay]}"
+  local attempt=1
+
+  log_info "Downloading $description..."
+
+  while [[ $attempt -le $max_attempts ]]; do
+    log_debug "Download attempt $attempt/$max_attempts: $url"
+
+    if curl -fsSL --connect-timeout 10 --max-time "$timeout" \
+      --retry 3 --retry-delay 2 --user-agent "${NETWORK_CONFIG[user_agent]}" \
+      "$url" -o "$output_file" 2>/dev/null; then
+      log_success "Download completed: $description"
+      return 0
+    else
+      local exit_code=$?
+
+      if [[ $attempt -eq $max_attempts ]]; then
+        log_error "Download failed after $max_attempts attempts: $description"
+        return $exit_code
+      else
+        log_warning "Download attempt $attempt failed, retrying in ${retry_delay}s..."
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay + 2)) # Progressive backoff
+      fi
+    fi
+
+    ((attempt++))
+  done
+
+  return 1
+}
 
 # === Node.js Setup via NVM ===
-echo "📦 Setting up Node.js (LTS and Current)..."
+install_nvm_and_node() {
+  log_info "Setting up Node.js (LTS and Current)..."
 
-export NVM_DIR="$HOME/.nvm"
-mkdir -p "$NVM_DIR"
+  # Create NVM directory
+  export NVM_DIR="$HOME/.nvm"
+  mkdir -p "$NVM_DIR"
 
-# Get latest NVM version from GitHub API
-NVM_VERSION=$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep "tag_name" | cut -d '"' -f 4)
-NVM_VERSION="${NVM_VERSION:-v0.39.7}"  # fallback if API fails
+  # Get latest NVM version from GitHub API
+  log_info "Fetching latest NVM version..."
+  local nvm_version_url="https://api.github.com/repos/nvm-sh/nvm/releases/latest"
+  local nvm_version_file
+  nvm_version_file=$(mktemp)
 
-curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
-
-# Load NVM
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-
-# Add NVM to shell profiles
-for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-  if [ -f "$PROFILE" ] && ! grep -q "NVM_DIR" "$PROFILE"; then
-    {
-      echo ''
-      echo '# NVM Configuration'
-      echo 'export NVM_DIR="$HOME/.nvm"'
-      echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
-      echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
-    } >> "$PROFILE"
+  if download_with_retry "$nvm_version_url" "$nvm_version_file" "NVM version info"; then
+    NVM_VERSION=$(grep "tag_name" "$nvm_version_file" | cut -d '"' -f 4)
+    if [[ -z "$NVM_VERSION" ]]; then
+      NVM_VERSION="v0.39.7" # fallback if parsing fails
+      log_warning "Could not parse NVM version, using fallback: $NVM_VERSION"
+    else
+      log_info "Latest NVM version: $NVM_VERSION"
+    fi
+  else
+    NVM_VERSION="v0.39.7" # fallback if download fails
+    log_warning "Could not fetch NVM version, using fallback: $NVM_VERSION"
   fi
-done
 
-# Install Node.js LTS and Current versions
-nvm alias default lts/*
-nvm use default
-echo "🔧 Installing Node.js LTS and Current versions..."
-if ! nvm install --lts; then
-    echo "⚠️ Failed to install LTS, trying specific version..."
-    nvm install 20
-fi
+  rm -f "$nvm_version_file"
 
-if ! nvm install node; then
-    echo "⚠️ Failed to install current, trying specific version..."
-    nvm install 22
-fi
+  # Download and run NVM install script
+  local nvm_install_url="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
+  local nvm_install_script
+  nvm_install_script=$(mktemp)
 
-# Set LTS as default
+  if download_with_retry "$nvm_install_url" "$nvm_install_script" "NVM installer"; then
+    log_info "Running NVM installation script..."
+    chmod +x "$nvm_install_script"
+    bash "$nvm_install_script"
+    local exit_code=$?
+    rm -f "$nvm_install_script"
 
-# Install global npm packages
-npm install -g npm@latest
-npm install -g yarn pnpm nx @angular/cli typescript ts-node eslint prettier
+    if [[ $exit_code -ne 0 ]]; then
+      log_error "NVM installation script failed with exit code: $exit_code"
+      return $exit_code
+    fi
+  else
+    log_error "Failed to download NVM installer"
+    rm -f "$nvm_install_script"
+    return 1
+  fi
 
-echo "📦 Installed Node.js versions:"
-nvm ls
-echo "👉 Current Node.js version: $(node -v)"
-echo "👉 Current npm version: $(npm -v)"
+  # Load NVM in current shell
+  export NVM_DIR="$HOME/.nvm"
+  # shellcheck disable=SC1091
+  [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
+  # Configure shell profiles using improved function from util-versions.sh
+  configure_nvm_environment
+
+  # Install Node.js versions
+  log_info "Installing Node.js versions..."
+
+  # Install LTS version
+  log_info "Installing Node.js LTS version..."
+  if ! nvm install --lts; then
+    log_warning "Failed to install Node.js LTS, trying specific version..."
+    nvm install 20 || {
+      log_error "Failed to install Node.js LTS"
+      return 1
+    }
+  fi
+
+  # Install current version
+  log_info "Installing Node.js current version..."
+  if ! nvm install node; then
+    log_warning "Failed to install Node.js current, trying specific version..."
+    nvm install 22 || log_warning "Failed to install Node.js current version"
+  fi
+
+  # Set LTS as default
+  log_info "Setting Node.js LTS as default..."
+  nvm alias default lts/* || nvm alias default "$(nvm version-remote --lts)" || {
+    log_warning "Could not set LTS as default, using latest installed version"
+    nvm alias default "$(nvm version)"
+  }
+  nvm use default
+
+  # Install global npm packages with validation
+  install_npm_packages
+
+  return 0
+}
+
+# Improved npm package installation with validation
+install_npm_packages() {
+  log_info "Installing global npm packages..."
+
+  # First upgrade npm itself
+  log_info "Upgrading npm to latest version..."
+  if ! npm install -g npm@latest; then
+    log_warning "Failed to upgrade npm, continuing with current version"
+  fi
+
+  # Essential development packages
+  local packages=(
+    "yarn"
+    "pnpm"
+    "nx"
+    "@angular/cli"
+    "typescript"
+    "ts-node"
+    "eslint"
+    "prettier"
+    "nodemon"
+  )
+
+  local installed_count=0
+  local failed_packages=()
+
+  for package in "${packages[@]}"; do
+    log_info "Installing $package..."
+    if npm install -g "$package"; then
+      ((installed_count++))
+      log_success "Installed $package successfully"
+    else
+      failed_packages+=("$package")
+      log_warning "Failed to install $package"
+    fi
+
+    # Small delay between packages to prevent rate limiting
+    sleep 1
+  done
+
+  if [[ ${#failed_packages[@]} -eq 0 ]]; then
+    log_success "All npm packages installed successfully"
+  else
+    log_warning "Some npm packages failed to install: ${failed_packages[*]}"
+  fi
+
+  log_info "Node.js installation results:"
+  log_info "Installed Node.js versions:"
+  nvm ls
+  log_success "Current Node.js version: $(node -v)"
+  log_success "Current npm version: $(npm -v)"
+
+  return 0
+}
 
 # === Python Setup via pyenv ===
-echo "🐍 Setting up Python (3.12)..."
+install_python() {
+  log_info "Setting up Python development environment..."
 
-# Core dependencies
-sudo apt update
-sudo apt install -y python3 python3-pip python3-dev python3-venv python3-setuptools python3-wheel
+  # Core dependencies
+  log_info "Installing Python core dependencies..."
+  sudo apt-get update -q
+  sudo apt-get install -y python3 python3-pip python3-dev python3-venv python3-setuptools python3-wheel
 
-# Install pyenv
-curl https://pyenv.run | bash
+  # Install Python build dependencies
+  log_info "Installing Python build dependencies..."
+  sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
+    libreadline-dev libsqlite3-dev libncursesw5-dev xz-utils tk-dev \
+    libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev curl
 
-# Add pyenv to shell profiles
-for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-  if [ -f "$PROFILE" ] && ! grep -q "pyenv" "$PROFILE"; then
-    {
-      echo ''
-      echo '# pyenv Configuration'
-      echo 'export PYENV_ROOT="$HOME/.pyenv"'
-      echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"'
-      echo 'eval "$(pyenv init -)"'
-    } >> "$PROFILE"
-  fi
-done
+  # Install pyenv
+  log_info "Installing pyenv..."
+  local pyenv_installer_url="https://pyenv.run"
+  local pyenv_installer_script
+  pyenv_installer_script=$(mktemp)
 
-# Load pyenv
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"
+  if download_with_retry "$pyenv_installer_url" "$pyenv_installer_script" "pyenv installer"; then
+    log_info "Running pyenv installation script..."
+    chmod +x "$pyenv_installer_script"
+    bash "$pyenv_installer_script"
+    local exit_code=$?
+    rm -f "$pyenv_installer_script"
 
-# Install Python build dependencies
-sudo apt install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
-  libreadline-dev libsqlite3-dev libncursesw5-dev xz-utils tk-dev \
-  libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev curl
-
-# Install specific Python versions (use stable releases)
-echo "🔧 Installing Python versions..."
-
-# Get available Python versions and install latest stable 3.12 and 3.11
-if pyenv install --list | grep -E "^\s*3\.12\.[0-9]+$" | tail -1 | xargs pyenv install -s; then
-    echo "✅ Latest Python 3.12.x installed"
-else
-    echo "⚠️ Failed to install Python 3.12.x, trying 3.11.x..."
-    if pyenv install --list | grep -E "^\s*3\.11\.[0-9]+$" | tail -1 | xargs pyenv install -s; then
-        echo "✅ Latest Python 3.11.x installed"
-    else
-        echo "❌ Failed to install any Python version"
-        exit 1
+    if [[ $exit_code -ne 0 ]]; then
+      log_error "pyenv installation script failed with exit code: $exit_code"
+      return $exit_code
     fi
-fi
+  else
+    log_error "Failed to download pyenv installer"
+    rm -f "$pyenv_installer_script"
+    return 1
+  fi
 
-# Set the installed version as global default
-INSTALLED_VERSION=$(pyenv versions --bare | grep -E "^3\.(12|11)\." | head -1)
-if [ -n "$INSTALLED_VERSION" ]; then
-    pyenv global "$INSTALLED_VERSION"
-    echo "✅ Set Python $INSTALLED_VERSION as global default"
-else
-    echo "❌ No suitable Python version found"
+  # Configure shell profiles
+  configure_pyenv_environment
+
+  # Load pyenv in current shell
+  export PYENV_ROOT="$HOME/.pyenv"
+  export PATH="$PYENV_ROOT/bin:$PATH"
+  eval "$(pyenv init -)"
+
+  # Install specific Python versions
+  install_python_versions
+
+  # Install Python packages
+  install_python_packages
+
+  return 0
+}
+
+# Function to install Python versions with fallback logic
+install_python_versions() {
+  log_info "Installing Python versions..."
+
+  local primary_version="${PYTHON_CONFIG[primary_version]}"
+  local fallback_versions="${PYTHON_CONFIG[fallback_versions]}"
+  local installed=false
+
+  # Try primary version first
+  log_info "Attempting to install Python $primary_version..."
+
+  # Find latest patch version for major.minor
+  local latest_version
+  latest_version=$(pyenv install --list | grep -E "^\s*${primary_version}\.[0-9]+$" | tail -1 | xargs)
+
+  if [[ -n "$latest_version" ]]; then
+    log_info "Installing Python $latest_version..."
+    if pyenv install -s "$latest_version"; then
+      log_success "Installed Python $latest_version"
+      pyenv global "$latest_version"
+      installed=true
+    else
+      log_warning "Failed to install Python $latest_version"
+    fi
+  else
+    log_warning "No Python $primary_version versions found"
+  fi
+
+  # Try fallback versions if primary fails
+  if [[ "$installed" != "true" ]]; then
+    log_info "Trying fallback Python versions..."
+
+    for version in $fallback_versions; do
+      log_info "Attempting to install Python $version..."
+
+      # Find latest patch version for this major.minor
+      local fallback_latest
+      fallback_latest=$(pyenv install --list | grep -E "^\s*${version}\.[0-9]+$" | tail -1 | xargs)
+
+      if [[ -n "$fallback_latest" ]]; then
+        log_info "Installing Python $fallback_latest..."
+        if pyenv install -s "$fallback_latest"; then
+          log_success "Installed Python $fallback_latest"
+          pyenv global "$fallback_latest"
+          installed=true
+          break
+        else
+          log_warning "Failed to install Python $fallback_latest"
+        fi
+      fi
+    done
+  fi
+
+  if [[ "$installed" != "true" ]]; then
+    log_error "Failed to install any Python version"
+    return 1
+  fi
+
+  # Verify installation
+  log_info "Python setup complete"
+  log_success "Active Python version: $(python --version 2>&1)"
+  log_success "Python interpreter: $(pyenv which python)"
+
+  return 0
+}
+
+# Function to install Python packages with validation
+install_python_packages() {
+  log_info "Installing Python packages..."
+
+  # Upgrade pip first
+  log_info "Upgrading pip..."
+  python -m pip install --upgrade pip
+
+  # Essential Python packages
+  local packages=(
+    "pipx"
+    "pipenv"
+    "virtualenv"
+    "poetry"
+    "black"
+    "isort"
+    "pytest"
+    "mypy"
+  )
+
+  local installed_count=0
+  local failed_packages=()
+
+  # Install pipx first and ensure path
+  python -m pip install --user pipx
+  python -m pipx ensurepath
+
+  # Install remaining packages
+  for package in "${packages[@]}"; do
+    # Skip pipx since we already installed it
+    if [[ "$package" == "pipx" ]]; then
+      ((installed_count++))
+      continue
+    fi
+
+    log_info "Installing $package..."
+    if python -m pip install --user "$package"; then
+      ((installed_count++))
+      log_success "Installed $package successfully"
+    else
+      failed_packages+=("$package")
+      log_warning "Failed to install $package"
+    fi
+  done
+
+  if [[ ${#failed_packages[@]} -eq 0 ]]; then
+    log_success "All Python packages installed successfully"
+  else
+    log_warning "Some Python packages failed to install: ${failed_packages[*]}"
+  fi
+
+  # Show pip version
+  log_success "Pip version: $(pip --version)"
+
+  return 0
+}
+
+# Main function
+main() {
+  log_header "Setting up Node.js and Python Development Environment"
+
+  # Validate system resources
+  if ! validate_system_resources; then
+    log_error "System resource validation failed"
+    finish_logging
     exit 1
-fi
+  fi
 
-# Upgrade pip and install tools
-python -m pip install --upgrade pip
-python -m pip install --user pipx
-python -m pipx ensurepath
-python -m pip install --user pipenv virtualenv poetry
+  # Install Node.js with NVM
+  if ! install_nvm_and_node; then
+    log_error "Node.js installation failed"
+    finish_logging
+    exit 1
+  fi
 
-# Show results
-echo "🐍 Python version: $(python --version)"
-echo "📦 Pip version: $(pip --version)"
+  # Install Python with pyenv
+  if ! install_python; then
+    log_error "Python installation failed"
+    finish_logging
+    exit 1
+  fi
 
-echo "✅ Node.js and Python environments are fully set up!"
+  log_success "Node.js and Python environments are fully set up!"
+  finish_logging
+  return 0
+}
+
+# Execute main function
+main

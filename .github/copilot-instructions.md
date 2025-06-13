@@ -53,3 +53,19 @@
 - Implement proper dependency chains for installation scripts
 - Handle both interactive and non-interactive execution modes
 - Support dry-run mode for destructive operations
+
+## Additional Best Practices (2025-06-13)
+
+- All scripts must pass shellcheck (v0.7.0+) without warnings.
+- Use `readonly` for all constants and variables that should not change.
+- Scripts must be executable (`chmod +x script.sh`).
+- Detect macOS with `uname -s` and handle accordingly for cross-platform support.
+- Use `/etc/os-release` for Linux distribution detection.
+- Avoid `eval` and never use untrusted input in command substitutions.
+- Use `mktemp` for creating temporary files/directories.
+- Standardize log output: `[YYYY-MM-DD HH:MM:SS] [LEVEL] message`.
+- Implement a `log()` function for structured logging.
+- Use Markdown for documentation and inline comments.
+- Include a `VERSION` variable and last updated timestamp in each script.
+- Source utility scripts with error checking: `source ... || { echo "Failed to source ..."; exit 1; }`.
+- Support dry-run mode via `DRY_RUN=1 ./script.sh` and document its effect.

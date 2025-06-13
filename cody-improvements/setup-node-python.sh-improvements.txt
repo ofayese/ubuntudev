@@ -1,0 +1,1634 @@
+<think>Let me carefully analyze the setup-node-python.sh script from the codebase context provided. I need to look for:
+
+1. Code smells
+2. Readability issues
+3. Maintainability problems
+4. Performance issues
+5. Security vulnerabilities
+6. Best practices alignment
+
+Looking at the script:
+
+**Structure:**
+- Uses `#!/usr/bin/env bash` ✓
+- Has `set -euo pipefail` ✓
+- Sources utility modules ✓
+- Has logging initialization ✓
+
+**Python Version Management:**
+- There's a section at the top for Python version compatibility fix
+- Uses pyenv for Python version management
+- Has hardcoded Python version "3.11.9"
+- Checks for python3.11 specifically
+
+**Main Script Logic:**
+- Detects WSL environment
+- Sets up Node.js via NVM
+- Sets up Python via pyenv
+- Installs global npm packages
+- Installs Python packages
+
+**Issues I can identify:**
+
+1. **Hardcoded Python Version Management**: The script has hardcoded Python version "3.11.9" at the top, but then later tries to install "3.12" in the main section. This is inconsistent and confusing.
+
+2. **Shell Profile Management Issues**: The script modifies multiple shell profiles (.bashrc, .zshrc, .profile) without checking which shell the user actually uses or preventing duplicate entries effectively.
+
+3. **Incomplete Error Handling for Network Operations**: While the script uses set -euo pipefail, it doesn't have proper timeout handling for network operations like downloading NVM or accessing GitHub API.
+
+4. **Poor Version Detection and Fallback Logic**: The script has inconsistent approaches to version detection - some parts check for specific versions, others use generic checks.
+
+5. **Security Issues with Script Downloads**: Similar to other scripts, it downloads and executes scripts without verification.
+
+6. **Resource Management Issues**: No validation of system resources before installing large packages.
+
+
+I'll dive deep into the most critical script vulnerabilities. The core challenges revolve around version inconsistency, network resilience, and environmental configuration. Python and Node.js setup requires meticulous approach to ensure reliable, secure installation across different environments. Key focus areas include robust version management, secure download mechanisms, and adaptive shell configuration strategies.</think>
+After analyzing the `setup-node-python.sh` script, I've identified several critical areas where the code quality, security, and reliability could be significantly enhanced:
+
+## **1. Inconsistent Python Version Management Strategy**
+
+**Issue**: The script contains conflicting Python version requirements - it defines `SUPPORTED_PYTHON_VERSION="3.11.9"` at the top but later attempts to install Python 3.12, creating confusion and potential installation failures.
+
+**Current Code**:
+```bash
+# At the top
+SUPPORTED_PYTHON_VERSION="3.11.9"
+
+# Later in the script
+echo "🐍 Setting up Python (3.12)..."
+# Install specific Python versions (use stable releases)
+if pyenv install --list | grep -E "^\s*3\.12\.[0-9]+$" | tail -1 | xargs pyenv install -s; then
+```
+
+**Recommendation**:
+```bash:setup-node-python.sh
+# Centralized version management configuration
+declare -A PYTHON_CONFIG=(
+    ["primary_version"]="3.12"
+    ["fallback_versions"]="3.11 3.10"
+    ["minimum_version"]="3.10"
+    ["preferred_patch"]="latest"
+)
+
+declare -A NODE_CONFIG=(
+    ["lts_version"]="lts/*"
+    ["current_version"]="node"
+    ["minimum_version"]="18.0.0"
+)
+
+# Intelligent Python version selection
+select_optimal_python_version() {
+    local target_major_minor="$1"
+    local available_versions
+    
+    log_info "Selecting optimal Python $target_major_minor version..."
+    
+    # Get all available versions for the target
+    available_versions=$(pyenv install --list 2>/dev/null | 
+        grep -E "^\s*${target_major_minor}\.[0-9]+$" | 
+        sed 's/^\s*//' | 
+        sort -V)
+    
+    if [[ -z "$available_versions" ]]; then
+        log_warning "No Python $target_major_minor versions available"
+        return 1
+    fi
+    
+    # Select the latest patch version
+    local selected_version
+    selected_version=$(echo "$available_versions" | tail -1)
+    
+    log_info "Selected Python version: $selected_version"
+    echo "$selected_version"
+}
+
+# Robust Python installation with fallback strategy
+install_python_with_fallback() {
+    local primary_version="${PYTHON_CONFIG[primary_version]}"
+    local fallback_versions="${PYTHON_CONFIG[fallback_versions]}"
+    local installed_version=""
+    
+    # Try primary version first
+    log_info "Attempting to install Python $primary_version (primary choice)..."
+    if install_python_version "$primary_version"; then
+        installed_version="$primary_version"
+    else
+        log_warning "Primary Python version $primary_version failed, trying fallbacks..."
+        
+        # Try fallback versions
+        for fallback in $fallback_versions; do
+            log_info "Trying fallback Python version: $fallback"
+            if install_python_version "$fallback"; then
+                installed_version="$fallback"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -z "$installed_version" ]]; then
+        log_error "Failed to install any Python version"
+        return 1
+    fi
+    
+    # Validate minimum version requirement
+    if ! validate_python_version "$installed_version" "${PYTHON_CONFIG[minimum_version]}"; then
+        log_error "Installed Python $installed_version does not meet minimum requirement"
+        return 1
+    fi
+    
+    log_success "Successfully installed Python $installed_version"
+    return 0
+}
+
+install_python_version() {
+    local version_pattern="$1"
+    local selected_version
+    
+    if selected_version=$(select_optimal_python_version "$version_pattern"); then
+        if pyenv install -s "$selected_version"; then
+            pyenv global "$selected_version"
+            log_success "Python $selected_version installed and set as global"
+            return 0
+        else
+            log_error "Failed to install Python $selected_version"
+            return 1
+        fi
+    else
+        log_error "Could not select Python version for pattern: $version_pattern"
+        return 1
+    fi
+}
+
+validate_python_version() {
+    local installed="$1"
+    local minimum="$2"
+    
+    # Simple version comparison (assumes semantic versioning)
+    if [[ "$(printf '%s\n' "$minimum" "$installed" | sort -V | head -n1)" == "$minimum" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+```
+
+**Benefits**: Eliminates version conflicts, provides intelligent fallback mechanisms, centralizes version management, and ensures consistent installation behavior.
+
+## **2. Inadequate Network Error Handling and Timeout Management**
+
+**Issue**: Network operations lack proper timeout handling, retry mechanisms, and comprehensive error recovery, making the script vulnerable to network instability.
+
+**Recommendation**:
+```bash:setup-node-python.sh
+# Network operation configuration
+declare -A NETWORK_CONFIG=(
+    ["timeout"]="30"
+    ["retries"]="3"
+    ["retry_delay"]="10"
+    ["user_agent"]="Ubuntu-DevTools-Setup/1.0"
+)
+
+# Enhanced network operation wrapper
+safe_network_operation() {
+    local operation_name="$1"
+    local operation_function="$2"
+    shift 2
+    local args=("$@")
+    
+    local attempt=1
+    local max_attempts=$((${NETWORK_CONFIG[retries]} + 1))
+    local timeout="${NETWORK_CONFIG[timeout]}"
+    local retry_delay="${NETWORK_CONFIG[retry_delay]}"
+    
+    log_info "Starting network operation: $operation_name"
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        log_debug "Network operation attempt $attempt/$max_attempts: $operation_name"
+        
+        if timeout "$timeout" "$operation_function" "${args[@]}"; then
+            log_success "Network operation completed: $operation_name"
+            return 0
+        else
+            local exit_code=$?
+            
+            if [[ $attempt -eq $max_attempts ]]; then
+                log_error "Network operation failed after $max_attempts attempts: $operation_name"
+                suggest_network_troubleshooting "$operation_name" "$exit_code"
+                return $exit_code
+            else
+                log_warning "Network operation attempt $attempt failed: $operation_name (retrying in ${retry_delay}s)"
+                sleep "$retry_delay"
+                # Exponential backoff
+                retry_delay=$((retry_delay * 2))
+            fi
+        fi
+        
+        ((attempt++))
+    done
+}
+
+# Enhanced NVM installation with network resilience
+install_nvm_resilient() {
+    local nvm_version="$1"
+    local install_script_url="https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_version}/install.sh"
+    local temp_script
+    
+    log_info "Installing NVM $nvm_version with network resilience..."
+    
+    # Create temporary file for script
+    temp_script=$(mktemp)
+    trap "rm -f '$temp_script'" RETURN
+    
+    # Download with enhanced error handling
+    download_nvm_script() {
+        curl -fsSL \
+            --max-time "${NETWORK_CONFIG[timeout]}" \
+            --retry "${NETWORK_CONFIG[retries]}" \
+            --retry-delay "${NETWORK_CONFIG[retry_delay]}" \
+            --retry-max-time 300 \
+            --user-agent "${NETWORK_CONFIG[user_agent]}" \
+            --connect-timeout 10 \
+            -o "$temp_script" \
+            "$install_script_url"
+    }
+    
+    if safe_network_operation "NVM script download" download_nvm_script; then
+        # Validate downloaded script
+        if validate_nvm_script "$temp_script"; then
+            log_info "Executing validated NVM installation script..."
+            if bash "$temp_script"; then
+                log_success "NVM installation completed successfully"
+                return 0
+            else
+                log_error "NVM script execution failed"
+                return 1
+            fi
+        else
+            log_error "NVM script validation failed"
+            return 1
+        fi
+    else
+        log_error "Failed to download NVM installation script"
+        return 1
+    fi
+}
+
+validate_nvm_script() {
+    local script_file="$1"
+    
+    # Basic validation checks
+    if [[ ! -s "$script_file" ]]; then
+        log_error "NVM script is empty"
+        return 1
+    fi
+    
+    # Check for expected content patterns
+    if ! grep -q "nvm-sh/nvm" "$script_file"; then
+        log_error "NVM script doesn't contain expected patterns"
+        return 1
+    fi
+    
+    # Check for dangerous patterns
+    if grep -E "(rm -rf /|eval.*base64|wget.*sh)" "$script_file" >/dev/null; then
+        log_warning "NVM script contains potentially dangerous commands"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Enhanced GitHub API interaction
+get_nvm_version_resilient() {
+    local api_url="https://api.github.com/repos/nvm-sh/nvm/releases/latest"
+    local temp_response
+    temp_response=$(mktemp)
+    trap "rm -f '$temp_response'" RETURN
+    
+    fetch_github_api() {
+        curl -fsSL \
+            --max-time "${NETWORK_CONFIG[timeout]}" \
+            --retry "${NETWORK_CONFIG[retries]}" \
+            --user-agent "${NETWORK_CONFIG[user_agent]}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -o "$temp_response" \
+            "$api_url"
+    }
+    
+    if safe_network_operation "GitHub API fetch" fetch_github_api; then
+        # Parse JSON response safely
+        local version
+        if command -v jq >/dev/null 2>&1; then
+            version=$(jq -r '.tag_name' "$temp_response" 2>/dev/null)
+        else
+            # Fallback parsing without jq
+            version=$(grep '"tag_name"' "$temp_response" | cut -d'"' -f4)
+        fi
+        
+        if [[ -n "$version" && "$version" != "null" ]]; then
+            echo "$version"
+            return 0
+        else
+            log_warning "Could not parse version from GitHub API response"
+            echo "v0.39.7"  # Fallback version
+            return 1
+        fi
+    else
+        log_warning "GitHub API request failed, using fallback version"
+        echo "v0.39.7"  # Fallback version
+        return 1
+    fi
+}
+
+suggest_network_troubleshooting() {
+    local operation="$1"
+    local exit_code="$2"
+    
+    log_info "Network troubleshooting suggestions for $operation:"
+    echo "1. Check internet connectivity: ping -c 3 google.com"
+    echo "2. Verify DNS resolution: nslookup github.com"
+    echo "3. Check if behind corporate firewall or proxy"
+    echo "4. Try different network (mobile hotspot, etc.)"
+    
+    case "$exit_code" in
+        "124") echo "5. Operation timed out - try increasing timeout or check network speed" ;;
+        "6"|"7") echo "5. DNS resolution failed - check DNS settings" ;;
+        "28") echo "5. Connection timeout - check firewall settings" ;;
+    esac
+}
+```
+
+**Benefits**: Provides robust network failure recovery, implements intelligent retry mechanisms, offers comprehensive error diagnostics, and ensures reliable installation in unstable network conditions.
+
+## **3. Poor Shell Environment Configuration Management**
+
+**Issue**: The script modifies multiple shell profiles indiscriminately without considering the user's actual shell environment, potentially creating conflicts and duplicate configurations.
+
+**Recommendation**:
+```bash:setup-node-python.sh
+# Intelligent shell environment management
+detect_user_shell_environment() {
+    local current_shell
+    current_shell=$(basename "${SHELL:-/bin/bash}")
+    
+    local shell_info=(
+        "shell:$current_shell"
+        "interactive:${-/*i*/true}"
+        "login:${0/#-*/true}"
+    )
+    
+    # Detect shell framework
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        shell_info+=("framework:zsh")
+        if [[ -d "$HOME/.oh-my-zsh" ]]; then
+            shell_info+=("oh-my-zsh:true")
+        fi
+    elif [[ -n "${BASH_VERSION:-}" ]]; then
+        shell_info+=("framework:bash")
+    fi
+    
+    printf '%s\n' "${shell_info[@]}"
+}
+
+get_shell_config_files() {
+    local shell="$1"
+    local config_files=()
+    
+    case "$shell" in
+        "bash")
+            # Check for different bash configuration files
+            [[ -f "$HOME/.bashrc" ]] && config_files+=("$HOME/.bashrc")
+            [[ -f "$HOME/.bash_profile" ]] && config_files+=("$HOME/.bash_profile")
+            [[ -f "$HOME/.profile" ]] && config_files+=("$HOME/.profile")
+            
+            # If no bash-specific files, create .bashrc
+            if [[ ${#config_files[@]} -eq 0 ]]; then
+                touch "$HOME/.bashrc"
+                config_files+=("$HOME/.bashrc")
+            fi
+            ;;
+        "zsh")
+            [[ -f "$HOME/.zshrc" ]] && config_files+=("$HOME/.zshrc")
+            [[ -f "$HOME/.
+```
+<think>The user wants me to continue with the setup-node-python.sh analysis. I was in the middle of recommendation #3 about "Poor Shell Environment Configuration Management" and need to complete that code example, then move on to recommendations #4 and #5, followed by the summary assessment.
+
+Let me continue from where I left off with the get_shell_config_files function.</think>
+```bash:setup-node-python.sh
+            [[ -f "$HOME/.zshrc" ]] && config_files+=("$HOME/.zshrc")
+            [[ -f "$HOME/.zprofile" ]] && config_files+=("$HOME/.zprofile")
+            [[ -f "$HOME/.profile" ]] && config_files+=("$HOME/.profile")
+            
+            # Create .zshrc if it doesn't exist
+            if [[ ${#config_files[@]} -eq 0 ]]; then
+                touch "$HOME/.zshrc"
+                config_files+=("$HOME/.zshrc")
+            fi
+            ;;
+        "fish")
+            local fish_config="$HOME/.config/fish/config.fish"
+            mkdir -p "$(dirname "$fish_config")"
+            [[ -f "$fish_config" ]] && config_files+=("$fish_config")
+            ;;
+        *)
+            # Fallback for unknown shells
+            [[ -f "$HOME/.profile" ]] && config_files+=("$HOME/.profile")
+            if [[ ${#config_files[@]} -eq 0 ]]; then
+                touch "$HOME/.profile"
+                config_files+=("$HOME/.profile")
+            fi
+            ;;
+    esac
+    
+    printf '%s\n' "${config_files[@]}"
+}
+
+# Smart configuration management with conflict detection
+configure_tool_environment() {
+    local tool_name="$1"
+    local env_commands="$2"
+    local shell_info
+    shell_info=$(detect_user_shell_environment)
+    
+    local current_shell
+    current_shell=$(echo "$shell_info" | grep "^shell:" | cut -d: -f2)
+    
+    log_info "Configuring $tool_name environment for $current_shell shell..."
+    
+    # Get appropriate config files
+    local config_files
+    readarray -t config_files < <(get_shell_config_files "$current_shell")
+    
+    local primary_config="${config_files[0]}"
+    local config_marker="# === $tool_name Environment (managed by ubuntu-devtools) ==="
+    local end_marker="# === End $tool_name Environment ==="
+    
+    # Check for existing configuration
+    if grep -Fq "$config_marker" "$primary_config"; then
+        log_info "$tool_name already configured in $primary_config"
+        
+        # Update existing configuration
+        update_existing_configuration "$primary_config" "$config_marker" "$end_marker" "$env_commands"
+    else
+        # Add new configuration
+        add_new_configuration "$primary_config" "$config_marker" "$end_marker" "$env_commands" "$tool_name"
+    fi
+    
+    # Handle shell-specific requirements
+    handle_shell_specific_config "$current_shell" "$tool_name" "$env_commands"
+    
+    log_success "$tool_name environment configured successfully"
+}
+
+update_existing_configuration() {
+    local config_file="$1"
+    local start_marker="$2"
+    local end_marker="$3"
+    local new_commands="$4"
+    
+    log_info "Updating existing configuration in $config_file"
+    
+    # Create backup
+    cp "$config_file" "${config_file}.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Remove old configuration block
+    sed -i "/$start_marker/,/$end_marker/d" "$config_file"
+    
+    # Add new configuration
+    {
+        echo ""
+        echo "$start_marker"
+        echo "$new_commands"
+        echo "$end_marker"
+        echo ""
+    } >> "$config_file"
+}
+
+add_new_configuration() {
+    local config_file="$1"
+    local start_marker="$2"
+    local end_marker="$3"
+    local commands="$4"
+    local tool_name="$5"
+    
+    log_info "Adding $tool_name configuration to $config_file"
+    
+    {
+        echo ""
+        echo "$start_marker"
+        echo "# Added by ubuntu-devtools setup script"
+        echo "# Last updated: $(date)"
+        echo "$commands"
+        echo "$end_marker"
+        echo ""
+    } >> "$config_file"
+}
+
+handle_shell_specific_config() {
+    local shell="$1"
+    local tool_name="$2"
+    local commands="$3"
+    
+    case "$shell" in
+        "fish")
+            configure_fish_environment "$tool_name" "$commands"
+            ;;
+        "zsh")
+            if [[ -d "$HOME/.oh-my-zsh" ]]; then
+                configure_ohmyzsh_integration "$tool_name"
+            fi
+            ;;
+    esac
+}
+
+configure_fish_environment() {
+    local tool_name="$1"
+    local bash_commands="$2"
+    
+    log_info "Configuring Fish shell integration for $tool_name"
+    
+    local fish_config="$HOME/.config/fish/config.fish"
+    
+    case "$tool_name" in
+        "NVM")
+            # Fish has different NVM integration
+            echo "# NVM integration for Fish" >> "$fish_config"
+            echo "function nvm" >> "$fish_config"
+            echo "    bass source ~/.nvm/nvm.sh --no-use ';' nvm \$argv" >> "$fish_config"
+            echo "end" >> "$fish_config"
+            ;;
+        "pyenv")
+            echo "# pyenv integration for Fish" >> "$fish_config"
+            echo "set -gx PATH ~/.pyenv/bin \$PATH" >> "$fish_config"
+            echo "pyenv init - | source" >> "$fish_config"
+            ;;
+    esac
+}
+
+# Environment validation and conflict detection
+validate_shell_configuration() {
+    local tool_name="$1"
+    
+    log_info "Validating $tool_name shell configuration..."
+    
+    # Test configuration in a new shell
+    local test_script
+    test_script=$(mktemp)
+    cat > "$test_script" << EOF
+#!/bin/bash
+source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null || source ~/.profile
+command -v $tool_name >/dev/null 2>&1
+EOF
+    
+    if bash "$test_script"; then
+        log_success "$tool_name is properly configured and accessible"
+        rm -f "$test_script"
+        return 0
+    else
+        log_warning "$tool_name configuration validation failed"
+        log_info "You may need to restart your terminal or run: source ~/.bashrc"
+        rm -f "$test_script"
+        return 1
+    fi
+}
+
+# Configuration cleanup for failed installations
+cleanup_shell_configuration() {
+    local tool_name="$1"
+    
+    log_info "Cleaning up $tool_name shell configuration..."
+    
+    local config_marker="# === $tool_name Environment (managed by ubuntu-devtools) ==="
+    local end_marker="# === End $tool_name Environment ==="
+    
+    for config_file in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+        if [[ -f "$config_file" ]] && grep -Fq "$config_marker" "$config_file"; then
+            log_info "Removing $tool_name configuration from $config_file"
+            sed -i "/$config_marker/,/$end_marker/d" "$config_file"
+        fi
+    done
+}
+
+# Enhanced NVM and pyenv configuration
+configure_nvm_environment() {
+    local nvm_commands='
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+'
+    configure_tool_environment "NVM" "$nvm_commands"
+    validate_shell_configuration "nvm"
+}
+
+configure_pyenv_environment() {
+    local pyenv_commands='
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+if command -v pyenv 1>/dev/null 2>&1; then
+    eval "$(pyenv init -)"
+fi
+'
+    configure_tool_environment "pyenv" "$pyenv_commands"
+    validate_shell_configuration "pyenv"
+}
+```
+
+**Benefits**: Intelligently detects user's shell environment, prevents configuration conflicts, maintains clean configuration management, and provides proper validation of environment setup.
+
+## **4. Insufficient Package Installation Validation and Dependency Management**
+
+**Issue**: The script installs global npm packages and Python packages without comprehensive dependency validation, version conflict checking, or installation verification.
+
+**Recommendation**:
+```bash:setup-node-python.sh
+# Advanced package management with dependency resolution
+declare -A NPM_PACKAGES=(
+    ["typescript"]="latest"
+    ["@types/node"]="latest"
+    ["eslint"]="latest"
+    ["prettier"]="latest"
+    ["nodemon"]="latest"
+    ["npm-check-updates"]="latest"
+    ["tldr"]="latest"
+    ["yarn"]="latest"
+)
+
+declare -A PYTHON_PACKAGES=(
+    ["pip"]="latest"
+    ["setuptools"]="latest"
+    ["wheel"]="latest"
+    ["pipx"]="latest"
+    ["black"]="latest"
+    ["ruff"]="latest"
+    ["mypy"]="latest"
+    ["pre-commit"]="latest"
+    ["jupyter"]="latest"
+    ["ipython"]="latest"
+)
+
+# Comprehensive package installation with validation
+install_npm_packages_enhanced() {
+    log_info "Installing global npm packages with enhanced validation..."
+    
+    # Validate npm environment first
+    if ! validate_npm_environment; then
+        log_error "npm environment validation failed"
+        return 1
+    fi
+    
+    local installed_count=0
+    local failed_packages=()
+    
+    # Create installation manifest
+    local install_manifest
+    install_manifest=$(mktemp)
+    echo "# NPM Package Installation Manifest - $(date)" > "$install_manifest"
+    
+    for package in "${!NPM_PACKAGES[@]}"; do
+        local version="${NPM_PACKAGES[$package]}"
+        local package_spec="$package"
+        
+        if [[ "$version" != "latest" ]]; then
+            package_spec="$package@$version"
+        fi
+        
+        log_info "Installing npm package: $package_spec"
+        
+        if install_npm_package_with_validation "$package_spec" "$install_manifest"; then
+            ((installed_count++))
+            log_success "Successfully installed: $package_spec"
+        else
+            failed_packages+=("$package_spec")
+            log_error "Failed to install: $package_spec"
+        fi
+    done
+    
+    # Generate installation report
+    generate_npm_installation_report "$install_manifest" "$installed_count" "${failed_packages[@]}"
+    rm -f "$install_manifest"
+    
+    return ${#failed_packages[@]}
+}
+
+validate_npm_environment() {
+    log_debug "Validating npm environment..."
+    
+    # Check npm availability
+    if ! command -v npm >/dev/null 2>&1; then
+        log_error "npm command not found"
+        return 1
+    fi
+    
+    # Check npm version
+    local npm_version
+    npm_version=$(npm --version 2>/dev/null)
+    if [[ -z "$npm_version" ]]; then
+        log_error "Could not determine npm version"
+        return 1
+    fi
+    
+    log_debug "npm version: $npm_version"
+    
+    # Check npm configuration
+    local npm_prefix
+    npm_prefix=$(npm config get prefix 2>/dev/null)
+    if [[ -z "$npm_prefix" ]]; then
+        log_warning "npm prefix not configured properly"
+    fi
+    
+    # Check write permissions to global directory
+    local global_dir
+    global_dir=$(npm config get prefix 2>/dev/null)/lib/node_modules
+    if [[ -d "$global_dir" ]] && [[ ! -w "$global_dir" ]]; then
+        log_error "No write permission to npm global directory: $global_dir"
+        log_info "Consider configuring npm to use a user directory or fixing permissions"
+        return 1
+    fi
+    
+    return 0
+}
+
+install_npm_package_with_validation() {
+    local package_spec="$1"
+    local manifest_file="$2"
+    local package_name
+    package_name=$(echo "$package_spec" | cut -d@ -f1)
+    
+    # Pre-installation validation
+    if npm list -g "$package_name" >/dev/null 2>&1; then
+        local current_version
+        current_version=$(npm list -g "$package_name" --depth=0 2>/dev/null | grep "$package_name" | sed 's/.*@//')
+        log_info "$package_name already installed (version: $current_version)"
+        echo "$package_name@$current_version - ALREADY_INSTALLED" >> "$manifest_file"
+        return 0
+    fi
+    
+    # Check package exists in registry
+    if ! npm view "$package_spec" version >/dev/null 2>&1; then
+        log_error "Package not found in npm registry: $package_spec"
+        echo "$package_spec - PACKAGE_NOT_FOUND" >> "$manifest_file"
+        return 1
+    fi
+    
+    # Install with timeout and retry
+    local attempt=1
+    local max_attempts=3
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        log_debug "Installing $package_spec (attempt $attempt/$max_attempts)"
+        
+        if timeout 300 npm install -g "$package_spec" >/dev/null 2>&1; then
+            # Verify installation
+            if npm list -g "$package_name" >/dev/null 2>&1; then
+                local installed_version
+                installed_version=$(npm list -g "$package_name" --depth=0 2>/dev/null | grep "$package_name" | sed 's/.*@//')
+                echo "$package_name@$installed_version - SUCCESS" >> "$manifest_file"
+                return 0
+            else
+                log_error "Package installation appeared successful but verification failed: $package_spec"
+                echo "$package_spec - VERIFICATION_FAILED" >> "$manifest_file"
+                return 1
+            fi
+        else
+            local exit_code=$?
+            if [[ $attempt -eq $max_attempts ]]; then
+                log_error "Package installation failed after $max_attempts attempts: $package_spec"
+                echo "$package_spec - INSTALL_FAILED" >> "$manifest_file"
+                return $exit_code
+            else
+                log_warning "Installation attempt $attempt failed for $package_spec, retrying..."
+                sleep $((attempt * 5))
+            fi
+        fi
+        
+        ((attempt++))
+    done
+}
+
+# Enhanced Python package management
+install_python_packages_enhanced() {
+    log_info "Installing Python packages with enhanced validation..."
+    
+    # Validate Python environment
+    if ! validate_python_environment; then
+        log_error "Python environment validation failed"
+        return 1
+    fi
+    
+    # Upgrade pip first
+    log_info "Upgrading pip to latest version..."
+    if ! python -m pip install --upgrade pip; then
+        log_warning "Failed to upgrade pip, continuing with current version"
+    fi
+    
+    local installed_count=0
+    local failed_packages=()
+    
+    # Create installation manifest
+    local install_manifest
+    install_manifest=$(mktemp)
+    echo "# Python Package Installation Manifest - $(date)" > "$install
+```
+<think>The user wants me to continue with the setup-node-python.sh analysis. I was in the middle of recommendation #4 about "Insufficient Package Installation Validation and Dependency Management" and need to complete that code example, then move on to recommendation #5, followed by the summary assessment.
+
+Let me continue from where I left off with the install_python_packages_enhanced function.</think>
+```bash:setup-node-python.sh
+    echo "# Python Package Installation Manifest - $(date)" > "$install_manifest"
+    
+    for package in "${!PYTHON_PACKAGES[@]}"; do
+        local version="${PYTHON_PACKAGES[$package]}"
+        local package_spec="$package"
+        
+        if [[ "$version" != "latest" ]]; then
+            package_spec="$package==$version"
+        fi
+        
+        log_info "Installing Python package: $package_spec"
+        
+        if install_python_package_with_validation "$package_spec" "$install_manifest"; then
+            ((installed_count++))
+            log_success "Successfully installed: $package_spec"
+        else
+            failed_packages+=("$package_spec")
+            log_error "Failed to install: $package_spec"
+        fi
+    done
+    
+    # Generate installation report
+    generate_python_installation_report "$install_manifest" "$installed_count" "${failed_packages[@]}"
+    rm -f "$install_manifest"
+    
+    return ${#failed_packages[@]}
+}
+
+validate_python_environment() {
+    log_debug "Validating Python environment..."
+    
+    # Check Python availability
+    if ! command -v python >/dev/null 2>&1; then
+        log_error "python command not found"
+        return 1
+    fi
+    
+    # Check Python version
+    local python_version
+    python_version=$(python --version 2>&1 | cut -d' ' -f2)
+    if [[ -z "$python_version" ]]; then
+        log_error "Could not determine Python version"
+        return 1
+    fi
+    
+    log_debug "Python version: $python_version"
+    
+    # Check pip availability
+    if ! python -m pip --version >/dev/null 2>&1; then
+        log_error "pip not available for current Python installation"
+        return 1
+    fi
+    
+    # Check virtual environment capability
+    if ! python -c "import venv" >/dev/null 2>&1; then
+        log_warning "venv module not available - some features may be limited"
+    fi
+    
+    return 0
+}
+
+install_python_package_with_validation() {
+    local package_spec="$1"
+    local manifest_file="$2"
+    local package_name
+    package_name=$(echo "$package_spec" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1)
+    
+    # Check if already installed
+    if python -c "import $package_name" >/dev/null 2>&1; then
+        local current_version
+        current_version=$(python -c "import $package_name; print(getattr($package_name, '__version__', 'unknown'))" 2>/dev/null || echo "unknown")
+        log_info "$package_name already installed (version: $current_version)"
+        echo "$package_name@$current_version - ALREADY_INSTALLED" >> "$manifest_file"
+        return 0
+    fi
+    
+    # Install with enhanced error handling
+    local temp_log
+    temp_log=$(mktemp)
+    
+    if python -m pip install "$package_spec" --user --no-warn-script-location >"$temp_log" 2>&1; then
+        # Verify installation by importing
+        if python -c "import $package_name" >/dev/null 2>&1; then
+            local installed_version
+            installed_version=$(python -c "import $package_name; print(getattr($package_name, '__version__', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "$package_name@$installed_version - SUCCESS" >> "$manifest_file"
+            rm -f "$temp_log"
+            return 0
+        else
+            log_error "Package installed but import failed: $package_spec"
+            echo "$package_spec - IMPORT_FAILED" >> "$manifest_file"
+            cat "$temp_log" | log_debug
+            rm -f "$temp_log"
+            return 1
+        fi
+    else
+        local exit_code=$?
+        log_error "Failed to install Python package: $package_spec"
+        echo "$package_spec - INSTALL_FAILED" >> "$manifest_file"
+        
+        # Log installation errors for debugging
+        if [[ -s "$temp_log" ]]; then
+            log_debug "Installation error details:"
+            cat "$temp_log" | while read -r line; do
+                log_debug "  $line"
+            done
+        fi
+        
+        rm -f "$temp_log"
+        return $exit_code
+    fi
+}
+
+# Installation reporting functions
+generate_npm_installation_report() {
+    local manifest_file="$1"
+    local success_count="$2"
+    shift 2
+    local failed_packages=("$@")
+    
+    log_info "NPM Package Installation Report:"
+    echo "================================="
+    echo "Successfully installed: $success_count packages"
+    
+    if [[ ${#failed_packages[@]} -gt 0 ]]; then
+        echo "Failed installations: ${#failed_packages[@]} packages"
+        for pkg in "${failed_packages[@]}"; do
+            echo "  ❌ $pkg"
+        done
+    fi
+    
+    if [[ -f "$manifest_file" ]]; then
+        echo ""
+        echo "Detailed manifest:"
+        cat "$manifest_file"
+    fi
+}
+
+generate_python_installation_report() {
+    local manifest_file="$1"
+    local success_count="$2"
+    shift 2
+    local failed_packages=("$@")
+    
+    log_info "Python Package Installation Report:"
+    echo "==================================="
+    echo "Successfully installed: $success_count packages"
+    
+    if [[ ${#failed_packages[@]} -gt 0 ]]; then
+        echo "Failed installations: ${#failed_packages[@]} packages"
+        for pkg in "${failed_packages[@]}"; do
+            echo "  ❌ $pkg"
+        done
+    fi
+    
+    if [[ -f "$manifest_file" ]]; then
+        echo ""
+        echo "Detailed manifest:"
+        cat "$manifest_file"
+    fi
+}
+```
+
+**Benefits**: Provides comprehensive package validation, implements robust error handling with detailed reporting, prevents dependency conflicts, and ensures successful installation verification.
+
+## **5. Inadequate System Resource Management and Performance Optimization**
+
+**Issue**: The script doesn't consider system resources, disk space, or network bandwidth when installing multiple large packages, potentially causing system performance issues or installation failures.
+
+**Recommendation**:
+```bash:setup-node-python.sh
+# System resource monitoring and optimization
+declare -A SYSTEM_REQUIREMENTS=(
+    ["min_memory_gb"]="4"
+    ["min_disk_gb"]="10"
+    ["min_network_speed_mbps"]="1"
+    ["node_install_size_mb"]="100"
+    ["python_install_size_mb"]="200"
+    ["npm_packages_size_mb"]="500"
+    ["python_packages_size_mb"]="300"
+)
+
+# Comprehensive system validation before installation
+validate_system_resources() {
+    log_info "Validating system resources for Node.js and Python installation..."
+    
+    local memory_gb disk_gb network_ok cpu_cores
+    memory_gb=$(free -g | awk '/^Mem:/ {print $2}')
+    disk_gb=$(df "$HOME" | awk 'NR==2 {print int($4/1024/1024)}')
+    cpu_cores=$(nproc)
+    
+    log_info "System resources: ${memory_gb}GB RAM, ${disk_gb}GB available disk, ${cpu_cores} CPU cores"
+    
+    # Memory validation
+    if [[ $memory_gb -lt ${SYSTEM_REQUIREMENTS[min_memory_gb]} ]]; then
+        log_error "Insufficient memory: ${memory_gb}GB available, ${SYSTEM_REQUIREMENTS[min_memory_gb]}GB required"
+        suggest_memory_optimization
+        return 1
+    fi
+    
+    # Disk space validation
+    local total_space_needed
+    total_space_needed=$(calculate_total_space_needed)
+    
+    if [[ $disk_gb -lt $total_space_needed ]]; then
+        log_error "Insufficient disk space: ${disk_gb}GB available, ${total_space_needed}GB needed"
+        suggest_disk_cleanup
+        return 1
+    fi
+    
+    # Network connectivity validation
+    if ! validate_network_connectivity; then
+        log_error "Network connectivity validation failed"
+        return 1
+    fi
+    
+    # Set optimization strategy based on resources
+    if [[ $memory_gb -ge 8 && $cpu_cores -ge 4 ]]; then
+        export INSTALL_STRATEGY="aggressive"
+        export PARALLEL_DOWNLOADS="true"
+        log_info "Using aggressive installation strategy (high-resource system)"
+    elif [[ $memory_gb -ge 4 && $cpu_cores -ge 2 ]]; then
+        export INSTALL_STRATEGY="balanced"
+        export PARALLEL_DOWNLOADS="false"
+        log_info "Using balanced installation strategy (medium-resource system)"
+    else
+        export INSTALL_STRATEGY="conservative"
+        export PARALLEL_DOWNLOADS="false"
+        log_info "Using conservative installation strategy (low-resource system)"
+    fi
+    
+    return 0
+}
+
+calculate_total_space_needed() {
+    local total=0
+    total=$((total + ${SYSTEM_REQUIREMENTS[node_install_size_mb]}))
+    total=$((total + ${SYSTEM_REQUIREMENTS[python_install_size_mb]}))
+    total=$((total + ${SYSTEM_REQUIREMENTS[npm_packages_size_mb]}))
+    total=$((total + ${SYSTEM_REQUIREMENTS[python_packages_size_mb]}))
+    
+    # Add 20% buffer for temporary files and downloads
+    total=$((total * 120 / 100))
+    
+    # Convert to GB
+    echo $((total / 1024 + 1))
+}
+
+validate_network_connectivity() {
+    log_debug "Validating network connectivity and speed..."
+    
+    # Test basic connectivity
+    local test_hosts=("nodejs.org" "pypi.org" "github.com")
+    local failed_hosts=0
+    
+    for host in "${test_hosts[@]}"; do
+        if ! timeout 10 ping -c 3 "$host" >/dev/null 2>&1; then
+            log_warning "Cannot reach $host"
+            ((failed_hosts++))
+        fi
+    done
+    
+    if [[ $failed_hosts -eq ${#test_hosts[@]} ]]; then
+        log_error "Cannot reach any required hosts"
+        return 1
+    fi
+    
+    # Basic download speed test
+    local speed_test_url="https://nodejs.org/dist/latest/SHASUMS256.txt"
+    local temp_file
+    temp_file=$(mktemp)
+    
+    log_debug "Testing download speed..."
+    local start_time end_time duration
+    start_time=$(date +%s)
+    
+    if curl -fsSL -o "$temp_file" "$speed_test_url" --max-time 30; then
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+        local file_size
+        file_size=$(stat -c%s "$temp_file" 2>/dev/null || echo 0)
+        
+        if [[ $duration -gt 0 && $file_size -gt 0 ]]; then
+            local speed_kbps=$((file_size / duration / 1024))
+            log_debug "Download speed: approximately ${speed_kbps} KB/s"
+            
+            # Very basic speed check (>10KB/s minimum)
+            if [[ $speed_kbps -lt 10 ]]; then
+                log_warning "Network speed appears very slow (${speed_kbps} KB/s)"
+                log_info "Installation may take significantly longer than expected"
+            fi
+        fi
+    else
+        log_warning "Could not perform network speed test"
+    fi
+    
+    rm -f "$temp_file"
+    return 0
+}
+
+# Resource-aware installation orchestration
+execute_optimized_installation() {
+    case "${INSTALL_STRATEGY:-balanced}" in
+        "aggressive")
+            execute_aggressive_installation
+            ;;
+        "balanced")
+            execute_balanced_installation
+            ;;
+        "conservative")
+            execute_conservative_installation
+            ;;
+        *)
+            log_warning "Unknown installation strategy, using balanced approach"
+            execute_balanced_installation
+            ;;
+    esac
+}
+
+execute_aggressive_installation() {
+    log_info "Executing aggressive installation strategy..."
+    
+    # Parallel installation with resource monitoring
+    local pids=()
+    
+    # Start Node.js installation in background
+    {
+        monitor_resource_usage "nodejs_install" &
+        local monitor_pid=$!
+        
+        install_nvm_and_node_optimized
+        kill $monitor_pid 2>/dev/null || true
+    } &
+    pids+=($!)
+    
+    # Wait a bit to stagger resource usage
+    sleep 30
+    
+    # Start Python installation in background
+    {
+        monitor_resource_usage "python_install" &
+        local monitor_pid=$!
+        
+        install_pyenv_and_python_optimized
+        kill $monitor_pid 2>/dev/null || true
+    } &
+    pids+=($!)
+    
+    # Monitor overall progress
+    monitor_parallel_installation "${pids[@]}"
+    
+    # Wait for completion
+    local exit_codes=()
+    for pid in "${pids[@]}"; do
+        wait "$pid"
+        exit_codes+=($?)
+    done
+    
+    # Install packages after core tools are ready
+    install_packages_parallel
+    
+    # Return overall success
+    for code in "${exit_codes[@]}"; do
+        if [[ $code -ne 0 ]]; then
+            return $code
+        fi
+    done
+    
+    return 0
+}
+
+execute_balanced_installation() {
+    log_info "Executing balanced installation strategy..."
+    
+    # Sequential installation with resource monitoring
+    monitor_resource_usage "nodejs_install" &
+    local nodejs_monitor=$!
+    
+    if install_nvm_and_node_optimized; then
+        kill $nodejs_monitor 2>/dev/null || true
+        log_success "Node.js installation completed"
+    else
+        kill $nodejs_monitor 2>/dev/null || true
+        log_error "Node.js installation failed"
+        return 1
+    fi
+    
+    # Small delay to let system resources stabilize
+    sleep 10
+    
+    monitor_resource_usage "python_install" &
+    local python_monitor=$!
+    
+    if install_pyenv_and_python_optimized; then
+        kill $python_monitor 2>/dev/null || true
+        log_success "Python installation completed"
+    else
+        kill $python_monitor 2>/dev/null || true
+        log_error "Python installation failed"
+        return 1
+    fi
+    
+    # Install packages sequentially
+    install_packages_sequential
+    
+    return 0
+}
+
+execute_conservative_installation() {
+    log_info "Executing conservative installation strategy..."
+    
+    # Very cautious approach with extensive monitoring
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    local resource_log="$temp_dir/resource_usage.log"
+    
+    # Continuous resource monitoring
+    monitor_system_resources_continuous "$resource_log" &
+    local monitor_pid=$!
+    
+    # Install with frequent checks
+    if ! install_with_resource_checks "Node.js" install_nvm_and_node_optimized; then
+        kill $monitor_pid 2>/dev/null || true
+        rm -rf "$temp_dir"
+        return 1
+    fi
+```
+<think>The user wants me to continue with the setup-node-python.sh analysis. I was in the middle of recommendation #5 about "Inadequate System Resource Management and Performance Optimization" and need to complete that code example, then provide the summary assessment.
+
+Let me continue from where I left off with the execute_conservative_installation function.</think>
+```bash:setup-node-python.sh
+    
+    # Wait for system to stabilize
+    wait_for_system_stabilization
+    
+    if ! install_with_resource_checks "Python" install_pyenv_and_python_optimized; then
+        kill $monitor_pid 2>/dev/null || true
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # Install packages very carefully
+    install_packages_conservative
+    
+    # Stop monitoring and generate report
+    kill $monitor_pid 2>/dev/null || true
+    generate_resource_usage_report "$resource_log"
+    rm -rf "$temp_dir"
+    
+    return 0
+}
+
+# Resource monitoring functions
+monitor_resource_usage() {
+    local operation_name="$1"
+    local log_file="${2:-/tmp/resource_${operation_name}.log}"
+    
+    echo "# Resource monitoring for $operation_name - $(date)" > "$log_file"
+    
+    while true; do
+        local timestamp memory_usage disk_usage cpu_usage
+        timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+        memory_usage=$(free | awk '/^Mem:/ {printf "%.1f", $3/$2 * 100}')
+        disk_usage=$(df "$HOME" | awk 'NR==2 {print $5}' | tr -d '%')
+        cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | tr -d '%us,')
+        
+        echo "$timestamp,$memory_usage,$disk_usage,$cpu_usage" >> "$log_file"
+        
+        # Alert on high resource usage
+        if (( $(echo "$memory_usage > 90" | bc -l) )); then
+            log_warning "High memory usage detected: ${memory_usage}%"
+        fi
+        
+        if [[ $disk_usage -gt 95 ]]; then
+            log_warning "High disk usage detected: ${disk_usage}%"
+        fi
+        
+        sleep 30
+    done
+}
+
+install_with_resource_checks() {
+    local component_name="$1"
+    local install_function="$2"
+    
+    log_info "Installing $component_name with resource monitoring..."
+    
+    # Pre-installation resource check
+    local pre_memory pre_disk
+    pre_memory=$(free | awk '/^Mem:/ {printf "%.1f", $3/$2 * 100}')
+    pre_disk=$(df "$HOME" | awk 'NR==2 {print $5}' | tr -d '%')
+    
+    log_debug "Pre-installation: Memory ${pre_memory}%, Disk ${pre_disk}%"
+    
+    # Start resource monitoring
+    monitor_resource_usage "${component_name,,}" &
+    local monitor_pid=$!
+    
+    # Execute installation with timeout
+    local install_timeout=1800  # 30 minutes
+    
+    if timeout "$install_timeout" "$install_function"; then
+        # Post-installation resource check
+        local post_memory post_disk
+        post_memory=$(free | awk '/^Mem:/ {printf "%.1f", $3/$2 * 100}')
+        post_disk=$(df "$HOME" | awk 'NR==2 {print $5}' | tr -d '%')
+        
+        log_info "$component_name installation completed"
+        log_debug "Post-installation: Memory ${post_memory}%, Disk ${post_disk}%"
+        log_debug "Resource delta: Memory $((${post_memory%.*} - ${pre_memory%.*}))%, Disk $((post_disk - pre_disk))%"
+        
+        kill $monitor_pid 2>/dev/null || true
+        return 0
+    else
+        local exit_code=$?
+        log_error "$component_name installation failed or timed out"
+        kill $monitor_pid 2>/dev/null || true
+        return $exit_code
+    fi
+}
+
+wait_for_system_stabilization() {
+    log_info "Waiting for system to stabilize..."
+    
+    local stable_count=0
+    local required_stable_checks=3
+    
+    while [[ $stable_count -lt $required_stable_checks ]]; do
+        local cpu_usage
+        cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | tr -d '%us,')
+        
+        if (( $(echo "$cpu_usage < 20" | bc -l) )); then
+            ((stable_count++))
+            log_debug "System stable check $stable_count/$required_stable_checks (CPU: ${cpu_usage}%)"
+        else
+            stable_count=0
+            log_debug "System still busy (CPU: ${cpu_usage}%), resetting stability counter"
+        fi
+        
+        sleep 10
+    done
+    
+    log_success "System has stabilized"
+}
+
+# Performance optimization suggestions
+suggest_memory_optimization() {
+    log_info "Memory optimization suggestions:"
+    echo "1. Close unnecessary applications and browser tabs"
+    echo "2. Clear system cache: sudo sync && sudo sysctl vm.drop_caches=1"
+    echo "3. Check for memory leaks: ps aux --sort=-%mem | head -10"
+    echo "4. Consider increasing swap space if needed"
+    echo "5. Reboot the system to free up memory"
+}
+
+suggest_disk_cleanup() {
+    log_info "Disk cleanup suggestions:"
+    echo "1. Clean package cache: sudo apt autoremove && sudo apt autoclean"
+    echo "2. Remove old kernels: sudo apt autoremove --purge"
+    echo "3. Clear temporary files: sudo rm -rf /tmp/* && rm -rf ~/.cache/*"
+    echo "4. Check large files: du -ah $HOME | sort -rh | head -20"
+    echo "5. Empty trash: rm -rf ~/.local/share/Trash/*"
+    
+    # Automated cleanup offer
+    read -p "Would you like to perform basic cleanup automatically? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        perform_basic_cleanup
+    fi
+}
+
+perform_basic_cleanup() {
+    log_info "Performing basic system cleanup..."
+    
+    # Package cleanup
+    sudo apt autoremove -y >/dev/null 2>&1 || true
+    sudo apt autoclean >/dev/null 2>&1 || true
+    
+    # Cache cleanup
+    rm -rf ~/.cache/* 2>/dev/null || true
+    
+    # Temp cleanup
+    rm -rf /tmp/* 2>/dev/null || true
+    
+    # Trash cleanup  
+    rm -rf ~/.local/share/Trash/* 2>/dev/null || true
+    
+    log_success "Basic cleanup completed"
+    
+    # Show space freed
+    local disk_after
+    disk_after=$(df "$HOME" | awk 'NR==2 {print int($4/1024/1024)}')
+    log_info "Available disk space after cleanup: ${disk_after}GB"
+}
+
+# Parallel package installation management
+install_packages_parallel() {
+    log_info "Installing packages in parallel mode..."
+    
+    # Install npm and Python packages concurrently
+    {
+        log_info "Installing npm packages (background)..."
+        install_npm_packages_enhanced
+    } &
+    local npm_pid=$!
+    
+    {
+        log_info "Installing Python packages (background)..."
+        install_python_packages_enhanced  
+    } &
+    local python_pid=$!
+    
+    # Monitor progress
+    while kill -0 $npm_pid 2>/dev/null || kill -0 $python_pid 2>/dev/null; do
+        log_debug "Package installation in progress..."
+        sleep 30
+    done
+    
+    # Collect results
+    local npm_result=0 python_result=0
+    wait $npm_pid || npm_result=$?
+    wait $python_pid || python_result=$?
+    
+    if [[ $npm_result -eq 0 && $python_result -eq 0 ]]; then
+        log_success "All packages installed successfully"
+        return 0
+    else
+        log_error "Some package installations failed (npm: $npm_result, python: $python_result)"
+        return 1
+    fi
+}
+
+install_packages_sequential() {
+    log_info "Installing packages sequentially..."
+    
+    if install_npm_packages_enhanced; then
+        log_success "npm packages installed successfully"
+    else
+        log_error "npm package installation failed"
+        return 1
+    fi
+    
+    # Brief pause between installations
+    sleep 5
+    
+    if install_python_packages_enhanced; then
+        log_success "Python packages installed successfully"
+    else
+        log_error "Python package installation failed"
+        return 1
+    fi
+    
+    return 0
+}
+
+install_packages_conservative() {
+    log_info "Installing packages conservatively..."
+    
+    # Install packages one by one with resource checks
+    log_info "Installing essential npm packages first..."
+    local essential_npm=("typescript" "eslint" "prettier")
+    
+    for package in "${essential_npm[@]}"; do
+        if ! install_single_npm_package_monitored "$package"; then
+            log_error "Failed to install essential npm package: $package"
+            return 1
+        fi
+        wait_for_system_stabilization
+    done
+    
+    log_info "Installing essential Python packages..."
+    local essential_python=("pip" "setuptools" "wheel")
+    
+    for package in "${essential_python[@]}"; do
+        if ! install_single_python_package_monitored "$package"; then
+            log_error "Failed to install essential Python package: $package"
+            return 1
+        fi
+        wait_for_system_stabilization
+    done
+    
+    log_success "Conservative package installation completed"
+    return 0
+}
+
+install_single_npm_package_monitored() {
+    local package="$1"
+    log_info "Installing npm package: $package (monitored)"
+    
+    monitor_resource_usage "npm_${package}" &
+    local monitor_pid=$!
+    
+    local result
+    if timeout 300 npm install -g "$package" >/dev/null 2>&1; then
+        result=0
+    else
+        result=1
+    fi
+    
+    kill $monitor_pid 2>/dev/null || true
+    return $result
+}
+
+install_single_python_package_monitored() {
+    local package="$1"
+    log_info "Installing Python package: $package (monitored)"
+    
+    monitor_resource_usage "python_${package}" &
+    local monitor_pid=$!
+    
+    local result
+    if timeout 300 python -m pip install --user "$package" >/dev/null 2>&1; then
+        result=0
+    else
+        result=1
+    fi
+    
+    kill $monitor_pid 2>/dev/null || true
+    return $result
+}
+
+generate_resource_usage_report() {
+    local log_file="$1"
+    
+    if [[ ! -f "$log_file" ]]; then
+        return
+    fi
+    
+    log_info "Resource Usage Summary:"
+    echo "======================="
+    
+    local max_memory max_disk max_cpu
+    max_memory=$(awk -F, 'NR>1 {if ($2 > max) max=$2} END {print max}' "$log_file")
+    max_disk=$(awk -F, 'NR>1 {if ($3 > max) max=$3} END {print max}' "$log_file")
+    max_cpu=$(awk -F, 'NR>1 {if ($4 > max) max=$4} END {print max}' "$log_file")
+    
+    echo "Peak Memory Usage: ${max_memory}%"
+    echo "Peak Disk Usage: ${max_disk}%"
+    echo "Peak CPU Usage: ${max_cpu}%"
+    
+    if (( $(echo "$max_memory > 80" | bc -l) )); then
+        echo "⚠️  High memory usage detected during installation"
+    fi
+    
+    if [[ ${max_disk%.*} -gt 90 ]]; then
+        echo "⚠️  High disk usage detected during installation"
+    fi
+}
+```
+
+**Benefits**: Prevents system overload during installation, provides intelligent resource-based optimization strategies, monitors system health throughout the process, and offers automated cleanup and recovery mechanisms.
+
+## **Summary Assessment**
+
+After comprehensive analysis of the `setup-node-python.sh` script, I've identified **substantial opportunities for enhancement** across multiple critical dimensions. While the script demonstrates functional capability for installing Node.js and Python environments, it lacks the enterprise-grade robustness required for production deployment scenarios.
+
+**Key Strengths Identified:**
+- Proper shell safety features and error handling foundation
+- Clean integration with utility modules for logging and environment detection
+- Comprehensive coverage of both Node.js and Python ecosystems
+- Basic WSL2 environment awareness and adaptation
+- Structured approach to tool installation and configuration
+
+**Critical Enhancement Opportunities:**
+
+1. **Version Management Inconsistencies** - Conflicting Python version specifications create installation confusion and potential failures
+2. **Network Resilience Deficiencies** - Lack of timeout handling and retry mechanisms makes installations vulnerable to network instability
+3. **Shell Configuration Management Issues** - Indiscriminate modification of multiple shell profiles without proper conflict detection
+4. **Package Installation Validation Gaps** - Insufficient verification of successful installations and dependency management
+5. **Resource Management Blindness** - No consideration of system resources during installation, potentially causing performance issues
+
+**Production-Readiness Assessment:**
+The current script is **adequate for basic development scenarios** but requires **significant architectural improvements** for enterprise environments. The foundation is solid, but critical infrastructure concerns around reliability, resource management, and error recovery need addressing.
+
+**Risk Impact Analysis:**
+- **Medium Security Risk**: Network operations lack proper validation and timeout handling
+- **High Reliability Risk**: Version conflicts and poor error recovery lead to inconsistent installations
+- **Medium Performance Impact**: Uncontrolled resource usage can overwhelm lower-specification systems
+- **Medium Maintenance Burden**: Shell configuration conflicts require manual intervention
+
+**Business Value of Enhancements:**
+- **Improved Reliability**: Intelligent version management and error recovery ensure consistent development environments
+- **Enhanced Performance**: Resource-aware installation prevents system overload and reduces setup failures
+- **Better User Experience**: Comprehensive validation and reporting provide clear feedback on installation status
+- **Reduced Support Overhead**: Robust error handling and recovery mechanisms minimize IT support requirements
+
+**Implementation Priority Recommendations:**
+1. **Critical (Immediate)**: Version management consistency - essential for reliable installations
+2. **High (Short-term)**: Network resilience and error handling - significantly improves success rates
+3. **Medium (Medium-term)**: Package validation and shell configuration management - ensures functional environments
+4. **Lower (Long-term)**: Resource optimization and performance monitoring - improves user experience
+
+**Overall Quality Assessment:**
+The script demonstrates **solid foundational engineering** with proper utility integration and basic safety measures. However, it currently operates at a **functional prototype level** rather than production standards. The core installation logic is sound, but lacks the sophisticated error handling, resource management, and validation mechanisms required for enterprise deployment.
+
+**Conclusion:**
+While the script successfully accomplishes its basic objectives of installing Node.js and Python environments, implementing the recommended enhancements would transform it into a **comprehensive, reliable, and intelligent development environment provisioning solution**. The suggested improvements address critical gaps in version management, network resilience, resource optimization, and validation that are essential for modern DevOps infrastructure automation standards.
+
+The script shows **good architectural potential** but requires **substantial enhancement** to meet enterprise reliability and performance expectations. With the proposed improvements, it would become a robust, production-ready tool suitable for consistent development environment provisioning across diverse system configurations.

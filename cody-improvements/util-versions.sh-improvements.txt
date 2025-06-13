@@ -1,0 +1,719 @@
+<think>Now I need to review the actual `util-versions.sh` file that was provided in the codebase context. Let me analyze it carefully for code smells, readability, maintainability, performance, and security issues.
+
+Looking at the code:
+
+1. **Security Issues:**
+   - Downloads and executes scripts directly from URLs without validation
+   - Uses `curl ... | bash` pattern which is dangerous
+   - No checksum verification
+   - No URL validation or domain whitelisting
+
+2. **Error Handling:**
+   - Some functions have good error handling, others don't
+   - No rollback mechanisms if installations fail partway through
+   - Shell profile modifications could leave system in inconsistent state
+
+3. **Performance:**
+   - All installations are sequential, not parallel
+   - Redundant shell profile updates (each function updates profiles separately)
+   - No caching of version information
+
+4. **Maintainability:**
+   - Functions are quite long and do multiple things
+   - Hardcoded version numbers as fallbacks
+   - Repetitive code patterns across setup functions
+
+5. **Input Validation:**
+   - No validation of version strings or parameters
+   - Functions accept boolean strings but don't validate them properly
+
+Let me provide 5 specific, actionable suggestions.</think>
+After reviewing the `util-versions.sh` script, I've identified several areas for improvement that would enhance its security, reliability, and maintainability:
+
+## **1. Critical Security Vulnerabilities in Download and Script Execution**
+
+**Issue**: The script downloads and executes scripts directly from the internet without any validation, creating significant security risks.
+
+**Recommendation**:
+```bash:util-versions.sh
+# Add secure download validation
+readonly TRUSTED_DOMAINS=(
+  "raw.githubusercontent.com"
+  "get.sdkman.io" 
+  "sh.rustup.rs"
+  "api.github.com"
+)
+
+validate_and_download() {
+  local url="$1"
+  local description="$2"
+  
+  # Extract and validate domain
+  local domain
+  domain=$(echo "$url" | sed -n 's|^https://\([^/]*\).*|\1|p')
+  
+  local is_trusted=false
+  for trusted in "${TRUSTED_DOMAINS[@]}"; do
+    if [[ "$domain" == "$trusted" ]]; then
+      is_trusted=true
+      break
+    fi
+  done
+  
+  if [[ "$is_trusted" != "true" ]]; then
+    log_error "Untrusted domain: $domain"
+    return 1
+  fi
+  
+  # Create secure temporary file
+  local temp_script
+  temp_script=$(mktemp --suffix=.sh)
+  chmod 700 "$temp_script"
+  
+  # Download with timeout and validation
+  if curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$temp_script"; then
+    # Basic script validation
+    if grep -q "rm -rf /" "$temp_script" || grep -q "chmod 777" "$temp_script"; then
+      log_error "Dangerous script content detected"
+      rm -f "$temp_script"
+      return 1
+    fi
+    
+    # Execute in restricted environment
+    env -i PATH="/usr/bin:/bin" HOME="$HOME" bash "$temp_script"
+    local exit_code=$?
+    rm -f "$temp_script"
+    return $exit_code
+  else
+    rm -f "$temp_script"
+    return 1
+  fi
+}
+
+# Replace direct curl|bash with secure function
+setup_nvm() {
+  # ... existing code ...
+  
+  log_info "Installing NVM $NVM_VERSION..."
+  local nvm_url="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
+  
+  if ! validate_and_download "$nvm_url" "NVM installer"; then
+    log_error "Failed to securely install NVM"
+    finish_logging
+    return 1
+  fi
+  
+  # ... rest of function ...
+}
+```
+
+**Benefits**: Prevents execution of malicious scripts, validates download sources, implements basic content scanning, and provides controlled execution environment.
+
+## **2. Inadequate Error Handling and No Rollback Mechanism**
+
+**Issue**: Functions modify shell profiles and install software without proper error handling or ability to rollback changes on failure.
+
+**Recommendation**:
+```bash:util-versions.sh
+# Add installation state management and rollback
+declare -A INSTALLATION_BACKUPS=()
+
+create_installation_backup() {
+  local component="$1"
+  local backup_id="backup_$(date +%s)"
+  
+  # Create backup directory
+  local backup_dir="/tmp/${component}_${backup_id}"
+  mkdir -p "$backup_dir"
+  
+  # Backup relevant files
+  for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+    if [[ -f "$profile" ]]; then
+      cp "$profile" "$backup_dir/$(basename "$profile")"
+    fi
+  done
+  
+  # Backup component directory if it exists
+  case "$component" in
+    "nvm")
+      [[ -d "$HOME/.nvm" ]] && cp -r "$HOME/.nvm" "$backup_dir/nvm_backup" 2>/dev/null
+      ;;
+    "pyenv")
+      [[ -d "$HOME/.pyenv" ]] && cp -r "$HOME/.pyenv" "$backup_dir/pyenv_backup" 2>/dev/null
+      ;;
+  esac
+  
+  INSTALLATION_BACKUPS["$component"]="$backup_dir"
+  log_debug "Created backup for $component: $backup_dir"
+}
+
+rollback_installation() {
+  local component="$1"
+  local backup_dir="${INSTALLATION_BACKUPS[$component]}"
+  
+  if [[ -z "$backup_dir" ]] || [[ ! -d "$backup_dir" ]]; then
+    log_warning "No backup found for $component"
+    return 1
+  fi
+  
+  log_info "Rolling back $component installation..."
+  
+  # Restore shell profiles
+  for profile in bashrc zshrc profile; do
+    local backup_file="$backup_dir/$profile"
+    local target_file="$HOME/.$profile"
+    
+    if [[ -f "$backup_file" ]]; then
+      cp "$backup_file" "$target_file"
+    fi
+  done
+  
+  # Restore component directory
+  case "$component" in
+    "nvm")
+      rm -rf "$HOME/.nvm" 2>/dev/null
+      [[ -d "$backup_dir/nvm_backup" ]] && cp -r "$backup_dir/nvm_backup" "$HOME/.nvm" 2>/dev/null
+      ;;
+    "pyenv")
+      rm -rf "$HOME/.pyenv" 2>/dev/null
+      [[ -d "$backup_dir/pyenv_backup" ]] && cp -r "$backup_dir/pyenv_backup" "$HOME/.pyenv" 2>/dev/null
+      ;;
+  esac
+  
+  # Cleanup backup
+  rm -rf "$backup_dir" 2>/dev/null
+  unset INSTALLATION_BACKUPS["$component"]
+  
+  log_success "Rollback completed for $component"
+}
+
+# Enhanced setup function with error handling
+setup_with_error_handling() {
+  local component="$1"
+  local setup_function="$2"
+  shift 2
+  local args=("$@")
+  
+  # Create backup before installation
+  create_installation_backup "$component"
+  
+  # Execute installation with error handling
+  if "$setup_function" "${args[@]}"; then
+    log_success "$component installation completed successfully"
+    # Cleanup backup on success
+    local backup_dir="${INSTALLATION_BACKUPS[$component]}"
+    [[ -n "$backup_dir" ]] && rm -rf "$backup_dir" 2>/dev/null
+    unset INSTALLATION_BACKUPS["$component"]
+    return 0
+  else
+    log_error "$component installation failed"
+    
+    # Attempt rollback
+    if rollback_installation "$component"; then
+      log_info "$component installation rolled back successfully"
+    else
+      log_warning "$component rollback failed - manual cleanup may be required"
+    fi
+    
+    return 1
+  fi
+}
+```
+
+**Benefits**: Provides ability to recover from failed installations, maintains system consistency, prevents leaving systems in broken states, and enables safe retry of installations.
+
+## **3. Performance Issues with Sequential Operations and Redundant Shell Profile Updates**
+
+**Issue**: All version managers are installed sequentially, and each function updates shell profiles separately, causing unnecessary file I/O and slower execution.
+
+**Recommendation**:
+```bash:util-versions.sh
+# Optimize shell profile management
+declare -A SHELL_PROFILE_QUEUE=()
+
+queue_profile_update() {
+  local profile="$1"
+  local content="$2"
+  local marker="$3"
+  
+  # Add to queue instead of immediate update
+  local key="${profile}_${marker}"
+  SHELL_PROFILE_QUEUE["$key"]="$content"
+}
+
+apply_all_profile_updates() {
+  log_info "Applying all shell profile updates..."
+  
+  local profiles=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
+  
+  for profile in "${profiles[@]}"; do
+    if [[ ! -f "$profile" ]]; then
+      continue
+    fi
+    
+    local profile_name
+    profile_name=$(basename "$profile")
+    local updates_applied=false
+    local temp_file
+    temp_file=$(mktemp)
+    
+    # Copy existing content
+    cp "$profile" "$temp_file"
+    
+    # Apply all queued updates for this profile
+    for key in "${!SHELL_PROFILE_QUEUE[@]}"; do
+      local key_profile="${key%_*}"
+      local marker="${key#*_}"
+      local content="${SHELL_PROFILE_QUEUE[$key]}"
+      
+      if [[ "$key_profile" == "$profile_name" ]]; then
+        # Check if update already exists
+        if ! grep -q "$marker" "$temp_file"; then
+          echo "$content" >> "$temp_file"
+          updates_applied=true
+        fi
+      fi
+    done
+    
+    # Only update file if changes were made
+    if [[ "$updates_applied" == "true" ]]; then
+      mv "$temp_file" "$profile"
+      log_info "Updated $profile_name"
+    else
+      rm -f "$temp_file"
+    fi
+  done
+  
+  # Clear the queue
+  SHELL_PROFILE_QUEUE=()
+}
+
+# Add parallel installation support
+setup_multiple_parallel() {
+  local components=("$@")
+  local max_parallel=3
+  local pids=()
+  
+  log_info "Installing version managers in parallel..."
+  
+  for component in "${components[@]}"; do
+    # Limit parallel processes
+    if [[ ${#pids[@]} -ge $max_parallel ]]; then
+      # Wait for one to complete
+      wait "${pids[0]}"
+      pids=("${pids[@]:1}")  # Remove first element
+    fi
+    
+    # Start installation in background
+    case "$component" in
+      "nvm")
+        install_nvm_parallel &
+        ;;
+      "pyenv")
+        install_pyenv_parallel &
+        ;;
+      *)
+        log_warning "Unknown component: $component"
+        continue
+        ;;
+    esac
+    
+    pids+=($!)
+    log_info "Started $component installation"
+  done
+  
+  # Wait for all remaining processes
+  for pid in "${pids[@]}"; do
+    wait "$pid"
+  done
+  
+  # Apply all profile updates at once
+  apply_all_profile_updates
+}
+
+# Parallel-safe installation functions
+install_nvm_parallel() {
+  # Modified setup_nvm that uses queue_profile_update instead of direct updates
+  export NVM_DIR="$HOME/.nvm"
+  mkdir -p "$NVM_DIR"
+  
+  # ... installation logic ...
+  
+  # Queue profile updates instead of immediate application
+  local nvm_config='
+# NVM Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+  
+  queue_profile_update ".bashrc" "$nvm_config" "NVM Configuration"
+  queue_profile_update ".zshrc" "$nvm_config" "NVM Configuration"
+}
+```
+
+**Benefits**: Significantly reduces installation time through parallel processing, eliminates redundant file operations, reduces disk I/O, and provides better resource utilization.
+
+## **4. Lack of Input Validation and Version String Management**
+
+**Issue**: Functions accept parameters without proper validation, and version strings are not properly validated or sanitized.
+
+**Recommendation**:
+```bash:util-versions.sh
+# Add comprehensive input validation
+validate_boolean_param() {
+  local param="$1"
+  local param_name="$2"
+  
+  case "$param" in
+    "true"|"false"|"1"|"0"|"yes"|"no"|"")
+      return 0
+      ;;
+    *)
+      log_error "Invalid boolean parameter for $param_name: $param"
+      log_info "Valid values: true, false, 1, 0, yes, no, or empty"
+      return 1
+      ;;
+  esac
+}
+
+validate_version_string() {
+  local version="$1"
+  local manager="$2"
+  
+  # Sanitize version string
+  version=$(echo "$version" | tr -d ';|&`$()')
+  
+  case "$manager" in
+    "node")
+      # Valid patterns: 18.17.0, lts, latest
+      if [[ "$version" =~ ^(latest|lts|[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        echo "$version"
+        return 0
+      fi
+      ;;
+    "python")
+      # Valid patterns: 3.11.5, 3.11, 3
+      if [[ "$version" =~ ^[0-9]+(\.[0-9]+)?(\.[0-9]+)?$ ]]; then
+        echo "$version"
+        return 0
+      fi
+      ;;
+    "java")
+      # Valid patterns: 17.0.7-tem, 11.0.19-amzn
+      if [[ "$version" =~ ^[0-9]+(\.[0-9]+)?(\.[0-9]+)?(-[a-zA-Z0-9]+)?$ ]]; then
+        echo "$version"
+        return 0
+      fi
+      ;;
+  esac
+  
+  log_error "Invalid version format for $manager: $version"
+  return 1
+}
+
+check_prerequisites() {
+  local component="$1"
+  
+  case "$component" in
+    "nvm")
+      # Check if curl is available
+      if ! command -v curl >/dev/null 2>&1; then
+        log_error "curl is required for NVM installation"
+        return 1
+      fi
+      ;;
+    "pyenv")
+      # Check if build dependencies are available
+      local deps=("make" "build-essential" "libssl-dev")
+      for dep in "${deps[@]}"; do
+        if ! dpkg -l "$dep" >/dev/null 2>&1; then
+          log_warning "$dep is recommended for pyenv"
+        fi
+      done
+      ;;
+  esac
+  
+  return 0
+}
+
+# Enhanced setup functions with validation
+setup_nvm() {
+  init_logging
+  local install_latest="${1:-true}"
+  local install_lts="${2:-true}"
+  
+  # Validate parameters
+  if ! validate_boolean_param "$install_latest" "install_latest" ||
+     ! validate_boolean_param "$install_lts" "install_lts"; then
+    finish_logging
+    return 1
+  fi
+  
+  # Check prerequisites
+  if ! check_prerequisites "nvm"; then
+    finish_logging
+    return 1
+  fi
+  
+  # Normalize boolean parameters
+  install_
+```
+<think>The user is asking me to continue with the 4th suggestion about input validation and version string management. I was in the middle of providing code for the enhanced setup functions with validation. Let me continue from where I left off and then provide the 5th suggestion.</think>
+```bash:util-versions.sh
+  # Normalize boolean parameters
+  install_latest=$(normalize_boolean "$install_latest")
+  install_lts=$(normalize_boolean "$install_lts")
+  
+  # Rest of existing function with validation...
+}
+
+normalize_boolean() {
+  local value="$1"
+  
+  case "$value" in
+    "true"|"1"|"yes"|"y"|"Y")
+      echo "true"
+      ;;
+    "false"|"0"|"no"|"n"|"N"|"")
+      echo "false"
+      ;;
+    *)
+      echo "false"
+      ;;
+  esac
+}
+
+# Add version resolution for aliases
+resolve_node_version() {
+  local version_input="$1"
+  
+  case "$version_input" in
+    "latest")
+      # Fetch latest stable version from Node.js API
+      curl -s https://nodejs.org/dist/index.json | \
+        jq -r '.[0].version' 2>/dev/null | \
+        sed 's/^v//' || echo "18.17.0"
+      ;;
+    "lts")
+      # Fetch latest LTS version
+      curl -s https://nodejs.org/dist/index.json | \
+        jq -r '.[] | select(.lts != false) | .version' 2>/dev/null | \
+        head -1 | sed 's/^v//' || echo "18.17.0"
+      ;;
+    *)
+      validate_version_string "$version_input" "node"
+      ;;
+  esac
+}
+```
+
+**Benefits**: Prevents script failures from invalid inputs, provides better user feedback on parameter errors, sanitizes potentially dangerous input, and enables intelligent version resolution for aliases like "latest" and "lts".
+
+## **5. Monolithic Functions and Poor Separation of Concerns**
+
+**Issue**: Functions like `setup_nvm()` and `setup_pyenv()` are doing multiple responsibilities (logging setup, installation, configuration, shell profile updates) making them hard to test, maintain, and reuse.
+
+**Recommendation**:
+```bash:util-versions.sh
+# Break down monolithic functions into focused components
+install_nvm_core() {
+  local nvm_version="$1"
+  
+  export NVM_DIR="$HOME/.nvm"
+  mkdir -p "$NVM_DIR"
+  
+  log_info "Installing NVM $nvm_version..."
+  local nvm_url="https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_version}/install.sh"
+  
+  if ! validate_and_download "$nvm_url" "NVM installer"; then
+    return 1
+  fi
+  
+  return 0
+}
+
+configure_nvm_shell() {
+  local nvm_config='
+# NVM Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+  
+  queue_profile_update ".bashrc" "$nvm_config" "NVM Configuration"
+  queue_profile_update ".zshrc" "$nvm_config" "NVM Configuration"
+}
+
+install_node_versions() {
+  local install_latest="$1"
+  local install_lts="$2"
+  
+  # Source NVM
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  
+  if [[ "$install_lts" == "true" ]]; then
+    log_info "Installing Node.js LTS..."
+    if nvm install --lts; then
+      nvm use --lts
+      nvm alias default "$(nvm current)"
+      log_success "Node.js LTS installed and set as default"
+    else
+      log_error "Failed to install Node.js LTS"
+      return 1
+    fi
+  fi
+  
+  if [[ "$install_latest" == "true" ]]; then
+    log_info "Installing latest Node.js..."
+    if nvm install node; then
+      log_success "Latest Node.js installed"
+    else
+      log_error "Failed to install latest Node.js"
+      return 1
+    fi
+  fi
+}
+
+verify_nvm_installation() {
+  # Source NVM
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  
+  if ! command -v nvm >/dev/null 2>&1; then
+    log_error "NVM command not available after installation"
+    return 1
+  fi
+  
+  local nvm_version
+  nvm_version=$(nvm --version 2>/dev/null)
+  log_info "NVM version: $nvm_version"
+  
+  # Check if Node.js is available
+  if command -v node >/dev/null 2>&1; then
+    local node_version
+    node_version=$(node --version 2>/dev/null)
+    log_info "Active Node.js version: $node_version"
+  fi
+  
+  return 0
+}
+
+# Refactored main setup function
+setup_nvm() {
+  init_logging
+  local install_latest="${1:-true}"
+  local install_lts="${2:-true}"
+  
+  # Validate and normalize inputs
+  if ! validate_boolean_param "$install_latest" "install_latest" ||
+     ! validate_boolean_param "$install_lts" "install_lts"; then
+    finish_logging
+    return 1
+  fi
+  
+  install_latest=$(normalize_boolean "$install_latest")
+  install_lts=$(normalize_boolean "$install_lts")
+  
+  # Check prerequisites
+  if ! check_prerequisites "nvm"; then
+    finish_logging
+    return 1
+  fi
+  
+  # Execute installation steps
+  local nvm_version="v0.39.7"
+  
+  if ! install_nvm_core "$nvm_version"; then
+    log_error "NVM core installation failed"
+    finish_logging
+    return 1
+  fi
+  
+  # Configure shell integration
+  configure_nvm_shell
+  
+  # Install Node.js versions if requested
+  if [[ "$install_latest" == "true" ]] || [[ "$install_lts" == "true" ]]; then
+    if ! install_node_versions "$install_latest" "$install_lts"; then
+      log_warning "Node.js version installation encountered issues"
+    fi
+  fi
+  
+  # Verify installation
+  if ! verify_nvm_installation; then
+    log_error "NVM installation verification failed"
+    finish_logging
+    return 1
+  fi
+  
+  log_success "NVM setup completed successfully"
+  finish_logging
+  return 0
+}
+
+# Create reusable installation orchestrator
+orchestrate_installation() {
+  local component="$1"
+  shift
+  local params=("$@")
+  
+  case "$component" in
+    "nvm")
+      setup_with_error_handling "nvm" setup_nvm "${params[@]}"
+      ;;
+    "pyenv")
+      setup_with_error_handling "pyenv" setup_pyenv "${params[@]}"
+      ;;
+    *)
+      log_error "Unknown component: $component"
+      return 1
+      ;;
+  esac
+}
+
+# Enhanced testing capabilities
+test_component_installation() {
+  local component="$1"
+  
+  case "$component" in
+    "nvm")
+      verify_nvm_installation
+      ;;
+    "pyenv")
+      verify_pyenv_installation
+      ;;
+    *)
+      log_error "No test available for component: $component"
+      return 1
+      ;;
+  esac
+}
+```
+
+**Benefits**: Improves code testability by isolating individual functions, enhances maintainability through clear separation of concerns, enables better error localization and debugging, facilitates code reuse across different installation scenarios, and makes the codebase more modular and extensible.
+
+---
+
+## **Summary**
+
+The `util-versions.sh` script demonstrates solid foundational structure with good logging practices and comprehensive functionality. However, there are **significant opportunities to enhance code quality**, particularly in the areas of:
+
+**Critical Issues Identified:**
+- **Security vulnerabilities** in script download and execution patterns
+- **Lack of error recovery mechanisms** that could leave systems in inconsistent states  
+- **Performance inefficiencies** from sequential operations and redundant file I/O
+- **Missing input validation** that could lead to runtime failures
+- **Monolithic function design** that reduces maintainability and testability
+
+**Overall Assessment:**
+
+While the script follows some good practices (structured logging, environment detection), it **requires substantial improvements** to meet production-grade standards. The current implementation prioritizes functionality over security and robustness, which could lead to system instability and security vulnerabilities in enterprise environments.
+
+**Key Benefits of Implementing These Improvements:**
+- **Enhanced Security**: Protection against malicious script execution
+- **Improved Reliability**: Rollback capabilities and comprehensive error handling
+- **Better Performance**: Parallel processing and optimized operations
+- **Increased Maintainability**: Modular design and clear separation of concerns
+- **Superior User Experience**: Input validation and intelligent error recovery
+
+The suggested enhancements would transform this utility from a functional script into a robust, enterprise-ready version management solution.

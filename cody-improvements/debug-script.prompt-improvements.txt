@@ -1,0 +1,699 @@
+Based on my analysis of the `.github/prompts/debug-script.prompt.md` file, here are 5 key areas for improvement:
+
+## **1. Missing Structured Debugging Workflow and Methodology**
+
+**Issue**: The prompt provides debugging techniques but lacks a systematic approach for troubleshooting complex issues or multi-component failures.
+
+**Benefits**: A structured debugging workflow would help developers approach problems methodically, reduce debugging time, and ensure comprehensive issue resolution.
+
+**Recommendation**:
+```markdown
+## Systematic Debugging Workflow
+
+### Phase 1: Problem Identification
+1. **Reproduce the Issue**: Create minimal reproduction steps
+2. **Gather Context**: Environment, recent changes, error patterns
+3. **Define Success Criteria**: What constitutes a "fixed" state
+
+### Phase 2: Information Gathering
+```bash
+# Comprehensive system state capture
+capture_debug_state() {
+    local debug_dir="/tmp/debug_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$debug_dir"
+    
+    # System information
+    {
+        echo "=== System Information ==="
+        uname -a
+        echo "=== Environment Variables ==="
+        env | sort
+        echo "=== Process Tree ==="
+        pstree -p $$
+        echo "=== File Descriptors ==="
+        ls -la /proc/$$/fd/
+        echo "=== Memory Usage ==="
+        free -h
+        echo "=== Disk Usage ==="
+        df -h
+    } > "$debug_dir/system_state.txt"
+    
+    echo "Debug information captured in: $debug_dir"
+}
+```
+
+### Phase 3: Hypothesis Testing
+- **Binary Search**: Isolate the failing component
+- **Minimal Test Cases**: Strip down to essential functionality
+- **Comparative Analysis**: Working vs. non-working environments
+
+### Phase 4: Root Cause Analysis
+- **Timeline Analysis**: When did the issue first appear?
+- **Dependency Mapping**: What components are involved?
+- **Change Impact**: What modifications could have caused this?
+```
+
+## **2. Inadequate Performance Debugging and Profiling Techniques**
+
+**Issue**: The prompt mentions resource issues but doesn't provide specific tools and techniques for performance analysis and bottleneck identification.
+
+**Benefits**: Comprehensive performance debugging would help identify and resolve performance bottlenecks, memory leaks, and resource contention issues.
+
+**Recommendation**:
+```bash
+## Performance Debugging Framework
+
+# Script execution profiling
+profile_script_execution() {
+    local script_path="$1"
+    local profile_output="/tmp/profile_$(basename "$script_path")_$(date +%s)"
+    
+    echo "Profiling script: $script_path"
+    
+    # Time-based profiling
+    {
+        echo "=== Execution Time Profile ==="
+        time bash -x "$script_path" 2>&1
+    } > "$profile_output.time"
+    
+    # Memory profiling (if available)
+    if command -v valgrind >/dev/null 2>&1; then
+        echo "Running memory analysis..."
+        valgrind --tool=massif --massif-out-file="$profile_output.massif" \
+                 bash "$script_path" 2>"$profile_output.valgrind"
+    fi
+    
+    # System resource monitoring
+    {
+        echo "=== Resource Usage During Execution ==="
+        # Monitor CPU, memory, I/O during script execution
+        (
+            while kill -0 $$ 2>/dev/null; do
+                echo "$(date): $(ps -o pid,ppid,pcpu,pmem,cmd -p $$)"
+                sleep 1
+            done
+        ) &
+        local monitor_pid=$!
+        
+        bash "$script_path"
+        kill $monitor_pid 2>/dev/null || true
+    } > "$profile_output.resources"
+    
+    echo "Profile data saved to: $profile_output.*"
+}
+
+# I/O bottleneck detection
+debug_io_performance() {
+    local operation="$1"
+    
+    # Monitor file system operations
+    if command -v strace >/dev/null 2>&1; then
+        echo "Monitoring I/O operations..."
+        strace -e trace=file,read,write -c -o /tmp/io_trace.txt "$operation"
+        echo "I/O trace saved to: /tmp/io_trace.txt"
+    fi
+    
+    # Monitor disk I/O
+    if command -v iotop >/dev/null 2>&1; then
+        echo "Monitor disk I/O with: sudo iotop -p $$"
+    fi
+}
+
+# Network debugging for scripts with network operations
+debug_network_operations() {
+    local target_host="$1"
+    local target_port="${2:-80}"
+    
+    echo "=== Network Connectivity Debug ==="
+    
+    # Basic connectivity
+    if ping -c 3 "$target_host" >/dev/null 2>&1; then
+        echo "✅ Host $target_host is reachable"
+    else
+        echo "❌ Host $target_host is not reachable"
+    fi
+    
+    # Port connectivity
+    if command -v nc >/dev/null 2>&1; then
+        if nc -z "$target_host" "$target_port" 2>/dev/null; then
+            echo "✅ Port $target_port is open on $target_host"
+        else
+            echo "❌ Port $target_port is closed on $target_host"
+        fi
+    fi
+    
+    # DNS resolution
+    echo "DNS resolution for $target_host:"
+    nslookup "$target_host" || dig "$target_host" || echo "DNS lookup failed"
+    
+    # Network trace (if available)
+    if command -v traceroute >/dev/null 2>&1; then
+        echo "Network path to $target_host:"
+        traceroute "$target_host" 2>/dev/null || echo "Traceroute failed"
+    fi
+}
+```
+
+## **3. Missing Advanced Error Context and Stack Trace Capabilities**
+
+**Issue**: The debugging function example is basic and doesn't provide rich context, stack traces, or error correlation capabilities.
+
+**Benefits**: Advanced error context would significantly improve debugging efficiency by providing detailed information about error conditions and execution flow.
+
+**Recommendation**:
+```bash
+## Advanced Error Context and Stack Traces
+
+# Enhanced debugging with stack trace
+debug_with_context() {
+    local level="${1:-INFO}"
+    local message="$2"
+    local show_stack="${3:-false}"
+    
+    if [[ "${DEBUG:-false}" == "true" ]]; then
+        local timestamp
+        timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+        
+        # Build context information
+        local context_info=""
+        context_info+="[$timestamp] "
+        context_info+="[PID:$$] "
+        context_info+="[${level}] "
+        
+        # Add function call context
+        if [[ ${#FUNCNAME[@]} -gt 1 ]]; then
+            context_info+="[${FUNCNAME[1]}:${BASH_LINENO[0]}] "
+        fi
+        
+        echo "${context_info}${message}" >&2
+        
+        # Show stack trace if requested
+        if [[ "$show_stack" == "true" ]]; then
+            print_stack_trace
+        fi
+        
+        # Log to file if DEBUG_LOG is set
+        if [[ -n "${DEBUG_LOG:-}" ]]; then
+            echo "${context_info}${message}" >> "$DEBUG_LOG"
+        fi
+    fi
+}
+
+# Stack trace functionality
+print_stack_trace() {
+    local frame=1
+    echo "Stack trace:" >&2
+    
+    while [[ ${FUNCNAME[$frame]} ]]; do
+        local func="${FUNCNAME[$frame]}"
+        local file="${BASH_SOURCE[$frame]}"
+        local line="${BASH_LINENO[$((frame-1))]}"
+        
+        echo "  $((frame-1)): $func() at $file:$line" >&2
+        ((frame++))
+    done
+}
+
+# Error correlation and tracking
+track_error_patterns() {
+    local error_message="$1"
+    local error_log="/tmp/error_patterns_$$.log"
+    
+    # Create error signature
+    local error_signature
+    error_signature=$(echo "$error_message" | sed 's/[0-9]\+/N/g' | sed 's/[[:space:]]\+/ /g')
+    
+    # Log with timestamp and context
+    {
+        echo "$(date '+%Y-%m-%d %H:%M:%S')|$$|${FUNCNAME[1]:-main}|$error_signature|$error_message"
+    } >> "$error_log"
+    
+    # Check for recurring patterns
+    local pattern_count
+    pattern_count=$(grep -c "$error_signature" "$error_log" 2>/dev/null || echo "0")
+    
+    if [[ $pattern_count -gt 3 ]]; then
+        echo "⚠️  Recurring error pattern detected ($pattern_count occurrences): $error_signature" >&2
+    fi
+}
+
+# Variable state inspection
+inspect_variable_state() {
+    local var_name="$1"
+    
+    if [[ "${DEBUG:-false}" == "true" ]]; then
+        echo "=== Variable State: $var_name ===" >&2
+        
+        # Check if variable is set
+        if [[ -v "$var_name" ]]; then
+            local var_value="${!var_name}"
+            echo "Value: '$var_value'" >&2
+            echo "Type: $(type -t "$var_name" 2>/dev/null || echo "variable")" >&2
+            echo "Length: ${#var_value}" >&2
+            
+            # Show array information if it's an array
+            if [[ "$(declare -p "$var_name" 2>/dev/null)" =~ "declare -a" ]]; then
+                local -n array_ref="$var_name"
+                echo "Array length: ${#array_ref[@]}" >&2
+                echo "Array indices: ${!array_ref[*]}" >&2
+            fi
+        else
+            echo "Variable '$var_name' is not set" >&2
+        fi
+        echo "=========================" >&2
+    fi
+}
+```
+
+## **4. Insufficient Integration with Project-Specific Debugging Tools**
+
+**Issue**: The prompt doesn't leverage the project's existing utility modules or provide debugging patterns specific to the Ubuntu development environment setup scripts.
+
+**Benefits**: Project-specific debugging integration would provide more relevant and effective debugging capabilities tailored to the codebase's architecture and common failure patterns.
+
+**Recommendation**:
+```bash
+## Project-Specific Debugging Integration
+
+# Integration with util-log.sh debugging
+setup_project_debugging() {
+    # Source project utilities if available
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    if [[ -f "$script_dir/util-log.sh" ]]; then
+        source "$script_dir/util-log.sh"
+        
+        # Enhanced logging with debug mode
+        debug_log_info() {
+            if [[ "${DEBUG:-false}" == "true" ]]; then
+                log_info "DEBUG: $*"
+            fi
+        }
+        
+        debug_log_error() {
+            log_error "DEBUG: $*"
+            if [[ "${DEBUG_STACK_TRACE:-false}" == "true" ]]; then
+                print_stack_trace
+            fi
+        }
+    fi
+    
+    # Environment-specific debugging
+    if [[ -f "$script_dir/util-env.sh" ]]; then
+        source "$script_dir/util-env.sh"
+        
+        debug_environment_state() {
+            local env_type
+            env_type=$(detect_environment)
+            
+            echo "=== Environment Debug Information ===" >&2
+            echo "Environment Type: $env_type" >&2
+            echo "WSL2 Status: $(is_wsl2 && echo "Yes" || echo "No")" >&2
+            echo "Desktop Environment: $(is_desktop_environment && echo "Yes" || echo "No")" >&2
+            echo "Systemd Status: $(is_systemd_running && echo "Running" || echo "Not Running")" >&2
+            echo "====================================" >&2
+        }
+    fi
+}
+
+# Debug package installation issues
+debug_package_installation() {
+    local package_name="$1"
+    local package_type="${2:-apt}"
+    
+    echo "=== Package Installation Debug: $package_name ===" >&2
+    
+    case "$package_type" in
+        "apt")
+            # Check package availability
+            echo "Checking package availability..." >&2
+            apt-cache show "$package_name" 2>&1 | head -10 >&2
+            
+            # Check repository status
+            echo "Repository status:" >&2
+            apt-get update -qq 2>&1 | grep -E "(error|failed|warning)" >&2 || echo "Repositories OK" >&2
+            
+            # Check disk space
+            echo "Disk space:" >&2
+            df -h /var/cache/apt >&2
+            ;;
+            
+        "snap")
+            echo "Snap system status:" >&2
+            snap version >&2
+            snap list | grep -E "(error|broken)" >&2 || echo "Snap packages OK" >&2
+            ;;
+    esac
+    
+    echo "=============================================" >&2
+}
+
+# Debug VS Code installation issues (project-specific)
+debug_vscode_installation() {
+    local env_type
+    env_type=$(detect_environment 2>/dev/null || echo "unknown")
+    
+    echo "=== VS Code Installation Debug ===" >&2
+    echo "Environment: $env_type" >&2
+    
+    case "$env_type" in
+        "wsl")
+            echo "Checking Windows VS Code installations..." >&2
+            ls -la "/mnt/c/Program Files/Microsoft VS Code/" 2>/dev/null || echo "VS Code not found in Program Files" >&2
+            ls -la "/mnt/c/Program Files/Microsoft VS Code Insiders/" 2>/dev/null || echo "VS Code Insiders not found" >&2
+            ;;
+        "desktop")
+            echo "Checking local VS Code installations..." >&2
+            which code 2>/dev/null || echo "code command not found" >&2
+            which code-insiders 2>/dev/null || echo "code-insiders command not found" >&2
+            snap list | grep code || echo "No VS Code snap packages found" >&2
+            ;;
+    esac
+    
+    echo "===================================" >&2
+}
+```
+
+## **5. Missing Automated Debugging and Self-Healing Capabilities**
+
+**Issue**: The prompt focuses on manual debugging but doesn't address automated error detection, self-healing mechanisms, or proactive issue prevention.
+
+**Benefits**: Automated debugging capabilities would reduce manual intervention, improve script reliability, and provide proactive issue resolution.
+
+**Recommendation**:
+```bash
+## Automated Debugging and Self-Healing
+
+# Automated health check framework
+setup_health_monitoring() {
+    local script_name="$1"
+    local health_check_interval="${2:-60}"  # seconds
+    
+    # Create health check function
+    perform_health_check() {
+        local issues_found=0
+        
+        # Check disk space
+        local disk_usage
+        disk_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+        if [[ $disk_usage -gt 90 ]]; then
+            log_warning "Disk usage critical: ${disk_usage}%"
+            ((issues_found++))
+        fi
+        
+        # Check memory usage
+        local mem_usage
+        mem_usage=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+        if [[ $mem_usage -gt 90 ]]; then
+            log_warning "Memory usage high: ${mem_usage}%"
+            ((issues_found++))
+        fi
+        
+        # Check required services
+        if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+            log_warning "DNS resolution service not running"
+```bash
+            ((issues_found++))
+        fi
+        
+        # Check network connectivity
+        if ! timeout 5 wget -q --spider https://github.com 2>/dev/null; then
+            log_warning "Network connectivity issues detected"
+            ((issues_found++))
+        fi
+        
+        return $issues_found
+    }
+    
+    # Background health monitoring
+    if [[ "${ENABLE_HEALTH_MONITORING:-false}" == "true" ]]; then
+        (
+            while true; do
+                if ! perform_health_check; then
+                    log_info "Health check passed"
+                else
+                    log_warning "Health check found issues - consider running diagnostics"
+                fi
+                sleep "$health_check_interval"
+            done
+        ) &
+        
+        local monitor_pid=$!
+        trap "kill $monitor_pid 2>/dev/null || true" EXIT
+        echo "Health monitoring started (PID: $monitor_pid)"
+    fi
+}
+
+# Self-healing mechanisms
+implement_self_healing() {
+    local component="$1"
+    
+    case "$component" in
+        "network")
+            # Automatic network recovery
+            heal_network_issues() {
+                log_info "Attempting network recovery..."
+                
+                # Restart network services
+                if systemctl is-active --quiet systemd-networkd; then
+                    sudo systemctl restart systemd-networkd
+                fi
+                
+                if systemctl is-active --quiet systemd-resolved; then
+                    sudo systemctl restart systemd-resolved
+                fi
+                
+                # Flush DNS cache
+                sudo systemd-resolve --flush-caches 2>/dev/null || true
+                
+                # Test recovery
+                if timeout 10 wget -q --spider https://github.com 2>/dev/null; then
+                    log_success "Network recovery successful"
+                    return 0
+                else
+                    log_error "Network recovery failed"
+                    return 1
+                fi
+            }
+            ;;
+            
+        "packages")
+            # Automatic package manager recovery
+            heal_package_manager() {
+                log_info "Attempting package manager recovery..."
+                
+                # Fix broken packages
+                sudo apt-get install -f -y 2>/dev/null || true
+                
+                # Clean package cache
+                sudo apt-get clean
+                sudo apt-get autoclean
+                
+                # Update package lists
+                if sudo apt-get update; then
+                    log_success "Package manager recovery successful"
+                    return 0
+                else
+                    log_error "Package manager recovery failed"
+                    return 1
+                fi
+            }
+            ;;
+            
+        "permissions")
+            # Automatic permission recovery
+            heal_permission_issues() {
+                local target_path="$1"
+                log_info "Attempting permission recovery for: $target_path"
+                
+                # Fix common permission issues
+                if [[ -d "$target_path" ]]; then
+                    # Directory permissions
+                    find "$target_path" -type d -exec chmod 755 {} \; 2>/dev/null || true
+                    find "$target_path" -type f -exec chmod 644 {} \; 2>/dev/null || true
+                    
+                    # Fix ownership if needed
+                    if [[ "$target_path" == "$HOME"* ]]; then
+                        chown -R "$USER:$USER" "$target_path" 2>/dev/null || true
+                    fi
+                    
+                    log_success "Permission recovery completed"
+                    return 0
+                else
+                    log_error "Target path does not exist: $target_path"
+                    return 1
+                fi
+            }
+            ;;
+    esac
+}
+
+# Proactive issue detection
+setup_proactive_monitoring() {
+    # Monitor for common failure patterns
+    monitor_error_patterns() {
+        local log_file="${1:-/var/log/ubuntu-dev-tools.log}"
+        
+        if [[ -f "$log_file" ]]; then
+            # Check for recurring errors in the last hour
+            local recent_errors
+            recent_errors=$(tail -1000 "$log_file" | grep -E "(ERROR|FAILED)" | tail -10)
+            
+            if [[ -n "$recent_errors" ]]; then
+                # Analyze error patterns
+                local error_count
+                error_count=$(echo "$recent_errors" | wc -l)
+                
+                if [[ $error_count -gt 5 ]]; then
+                    log_warning "High error rate detected: $error_count errors in recent activity"
+                    
+                    # Trigger automated diagnostics
+                    run_automated_diagnostics
+                fi
+            fi
+        fi
+    }
+    
+    # Automated diagnostic collection
+    run_automated_diagnostics() {
+        local diag_dir="/tmp/auto_diagnostics_$(date +%Y%m%d_%H%M%S)"
+        mkdir -p "$diag_dir"
+        
+        log_info "Running automated diagnostics..."
+        
+        # System state
+        {
+            echo "=== System State ==="
+            date
+            uptime
+            free -h
+            df -h
+            ps aux --sort=-%cpu | head -10
+        } > "$diag_dir/system_state.txt"
+        
+        # Network state
+        {
+            echo "=== Network State ==="
+            ip addr show
+            ip route show
+            cat /etc/resolv.conf
+        } > "$diag_dir/network_state.txt" 2>/dev/null
+        
+        # Service state
+        {
+            echo "=== Service State ==="
+            systemctl --failed
+            systemctl list-units --state=failed
+        } > "$diag_dir/service_state.txt" 2>/dev/null
+        
+        # Recent logs
+        journalctl --since "1 hour ago" --no-pager > "$diag_dir/recent_logs.txt" 2>/dev/null || true
+        
+        log_info "Automated diagnostics saved to: $diag_dir"
+        
+        # Attempt automatic remediation
+        attempt_auto_remediation "$diag_dir"
+    }
+    
+    # Automatic remediation based on diagnostics
+    attempt_auto_remediation() {
+        local diag_dir="$1"
+        
+        log_info "Attempting automatic remediation..."
+        
+        # Check for common issues and apply fixes
+        if grep -q "No space left on device" "$diag_dir"/*.txt 2>/dev/null; then
+            log_info "Disk space issue detected - cleaning temporary files"
+            sudo apt-get clean 2>/dev/null || true
+            sudo journalctl --vacuum-time=7d 2>/dev/null || true
+        fi
+        
+        if grep -q "Failed to start" "$diag_dir/service_state.txt" 2>/dev/null; then
+            log_info "Failed services detected - attempting restart"
+            # Only restart safe services
+            local failed_services
+            failed_services=$(systemctl --failed --no-legend | awk '{print $1}' | grep -E "(docker|containerd|ssh)" || true)
+            
+            for service in $failed_services; do
+                log_info "Restarting service: $service"
+                sudo systemctl restart "$service" 2>/dev/null || true
+            done
+        fi
+        
+        if grep -q "Temporary failure in name resolution" "$diag_dir"/*.txt 2>/dev/null; then
+            log_info "DNS resolution issue detected"
+            heal_network_issues
+        fi
+        
+        log_info "Automatic remediation completed"
+    }
+}
+
+# Integration with existing error handling
+enhance_error_handling() {
+    # Override the default error handler
+    set -E  # Enable ERR trap inheritance
+    
+    # Enhanced error trap
+    error_handler() {
+        local exit_code=$?
+        local line_number=$1
+        local command="$2"
+        
+        # Log the error with context
+        track_error_patterns "Script failed at line $line_number: $command (exit code: $exit_code)"
+        
+        # Capture debug state
+        capture_debug_state
+        
+        # Attempt self-healing if enabled
+        if [[ "${ENABLE_SELF_HEALING:-false}" == "true" ]]; then
+            log_info "Attempting self-healing..."
+            
+            # Determine healing strategy based on error context
+            if [[ "$command" =~ (apt-get|dpkg) ]]; then
+                heal_package_manager
+            elif [[ "$command" =~ (wget|curl|git) ]]; then
+                heal_network_issues
+            fi
+        fi
+        
+        # Exit with original error code
+        exit $exit_code
+    }
+    
+    # Set the enhanced error trap
+    trap 'error_handler $LINENO "$BASH_COMMAND"' ERR
+}
+```
+
+## **Overall Assessment**
+
+The prompt demonstrates **solid foundational debugging knowledge** with practical techniques for shell script troubleshooting. However, there are **substantial opportunities for enhancement** that would transform it into a comprehensive, enterprise-grade debugging framework:
+
+**Strengths:**
+- Good coverage of basic debugging techniques and error analysis
+- Practical examples of debugging functions and variable tracking
+- Appropriate focus on environment-specific issues
+- Clear structure with actionable debugging strategies
+- Useful integration of common debugging tools
+
+**Areas for Significant Enhancement:**
+- **Methodology**: Lacks systematic debugging workflow and structured problem-solving approach
+- **Performance Analysis**: Missing comprehensive performance profiling and bottleneck identification
+- **Error Context**: Basic error handling that could be enhanced with rich context and stack traces
+- **Project Integration**: Generic guidance that doesn't leverage project-specific utilities and patterns
+- **Automation**: No automated debugging, self-healing, or proactive monitoring capabilities
+
+**Impact of Improvements:**
+The suggested enhancements would elevate this from a useful debugging reference to a comprehensive debugging framework that includes:
+
+1. **Systematic Approach**: Structured methodology for complex problem resolution
+2. **Advanced Tooling**: Performance profiling, memory analysis, and I/O monitoring
+3. **Rich Context**: Detailed error tracking with stack traces and correlation
+4. **Project Alignment**: Integration with existing utility modules and environment detection
+5. **Automation**: Self-healing capabilities and proactive issue prevention
+
+These improvements would significantly reduce debugging time, improve script reliability, and provide developers with enterprise-grade debugging capabilities. The enhanced framework would be particularly valuable for the complex, multi-environment nature of the Ubuntu development setup scripts, where issues can span WSL2, desktop, container, and network domains.
+
+The prompt shows good design principles but would benefit from evolution into a more comprehensive, automated, and project-specific debugging framework suitable for production environments.

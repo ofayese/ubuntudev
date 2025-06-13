@@ -1,0 +1,1124 @@
+<think>Let me carefully review the util-wsl.sh file that was provided in the codebase context. I need to analyze it for code smells, readability, maintainability, performance, and security issues, but avoid listing issues that are already addressed in the given code.
+
+Looking at the util-wsl.sh file:
+
+1. **Security Issues:**
+   - The script uses `cmd.exe /c "echo %USERNAME%"` and `cmd.exe /c "hostname"` which could be dangerous if environment is compromised
+   - The script directly modifies system files like /etc/wsl.conf and /etc/resolv.conf without proper validation
+   - The .wslconfig creation uses potentially unsafe variable expansion
+   - No validation of Windows paths before creating symlinks
+
+2. **Error Handling:**
+   - Some functions have good error handling, others don't consistently handle failures
+   - The script doesn't validate that Windows paths exist before creating symlinks
+   - No cleanup mechanism if operations fail partway through
+
+3. **Performance:**
+   - Multiple separate calls to Windows commands that could be batched
+   - Redundant WSL environment detection in each function
+   - No caching of expensive operations like getting Windows username/hostname
+
+4. **Maintainability:**
+   - Functions are quite long and do multiple things
+   - Hardcoded paths and configuration values
+   - Repetitive environment detection code
+   - No proper dependency injection or configuration management
+
+5. **Input Validation:**
+   - No validation of Windows usernames or hostnames before using them in file operations
+   - No validation of system memory or disk space before operations
+   - Windows path construction without proper escaping
+
+Let me provide 5 specific, actionable suggestions that would improve this code.</think>
+After reviewing the `util-wsl.sh` script, I've identified several areas for improvement that would enhance its security, reliability, and maintainability:
+
+## **1. Security Vulnerabilities in Windows Command Execution and File Operations**
+
+**Issue**: The script executes Windows commands and creates files without proper validation, creating potential security risks and system instability.
+
+**Recommendation**:
+```bash:util-wsl.sh
+# Add secure Windows command execution
+execute_windows_command_safely() {
+  local command="$1"
+  local timeout="${2:-10}"
+  
+  # Validate command against whitelist
+  local allowed_commands=("echo %USERNAME%" "hostname" "echo %COMPUTERNAME%")
+  local is_allowed=false
+  
+  for allowed in "${allowed_commands[@]}"; do
+    if [[ "$command" == "$allowed" ]]; then
+      is_allowed=true
+      break
+    fi
+  done
+  
+  if [[ "$is_allowed" != "true" ]]; then
+    log_error "Command not in whitelist: $command"
+    return 1
+  fi
+  
+  # Execute with timeout and sanitize output
+  local result
+  result=$(timeout "$timeout" cmd.exe /c "$command" 2>/dev/null | tr -d '\r\n' | tr -cd '[:alnum:]._-')
+  
+  if [[ -z "$result" ]] || [[ ${#result} -gt 50 ]]; then
+    log_error "Invalid or suspicious command output"
+    return 1
+  fi
+  
+  echo "$result"
+}
+
+# Enhanced file creation with validation
+create_system_file_safely() {
+  local file_path="$1"
+  local content="$2"
+  local description="$3"
+  
+  # Validate file path
+  case "$file_path" in
+    "/etc/wsl.conf"|"/etc/resolv.conf"|"/mnt/c/Users/"*"/.wslconfig")
+      # Allowed paths
+      ;;
+    *)
+      log_error "Unsafe file path: $file_path"
+      return 1
+      ;;
+  esac
+  
+  # Create backup before modification
+  if [[ -f "$file_path" ]]; then
+    local backup_path="${file_path}.backup.$(date +%Y%m%d_%H%M%S)"
+    if ! sudo cp "$file_path" "$backup_path"; then
+      log_error "Failed to create backup of $file_path"
+      return 1
+    fi
+    log_info "Created backup: $backup_path"
+  fi
+  
+  # Create temporary file with restricted permissions
+  local temp_file
+  temp_file=$(mktemp)
+  chmod 600 "$temp_file"
+  
+  # Write content to temporary file
+  echo "$content" > "$temp_file"
+  
+  # Move to final location atomically
+  if sudo mv "$temp_file" "$file_path"; then
+    log_success "Created $description: $file_path"
+    return 0
+  else
+    rm -f "$temp_file"
+    log_error "Failed to create $description"
+    return 1
+  fi
+}
+
+# Replace unsafe Windows command calls
+get_windows_username() {
+  local username
+  username=$(execute_windows_command_safely "echo %USERNAME%")
+  
+  if [[ -z "$username" ]]; then
+    log_warning "Could not determine Windows username, using default"
+    echo "User"
+  else
+    echo "$username"
+  fi
+}
+
+get_windows_hostname() {
+  local hostname
+  hostname=$(execute_windows_command_safely "hostname")
+  
+  if [[ -z "$hostname" ]]; then
+    log_warning "Could not determine Windows hostname, using default"
+    echo "windows-host"
+  else
+    echo "$hostname"
+  fi
+}
+```
+
+**Benefits**: Prevents command injection attacks, validates system file modifications, provides atomic file operations with backup, and sanitizes potentially dangerous inputs from Windows environment.
+
+## **2. Inadequate Path Validation and Symlink Creation Vulnerabilities**
+
+**Issue**: The script creates symlinks to Windows paths without proper validation, which could lead to broken links or security issues if paths don't exist or contain malicious content.
+
+**Recommendation**:
+```bash:util-wsl.sh
+# Enhanced path validation and symlink management
+validate_windows_path() {
+  local path="$1"
+  
+  # Check if path exists
+  if [[ ! -e "$path" ]]; then
+    return 1
+  fi
+  
+  # Check if path is accessible
+  if [[ ! -r "$path" ]]; then
+    log_warning "Path exists but is not readable: $path"
+    return 1
+  fi
+  
+  # Validate path structure (prevent traversal attacks)
+  if [[ "$path" =~ \.\./|/\.\. ]]; then
+    log_error "Path contains directory traversal: $path"
+    return 1
+  fi
+  
+  return 0
+}
+
+create_safe_symlink() {
+  local target_path="$1"
+  local link_path="$2"
+  local description="$3"
+  
+  # Validate target path
+  if ! validate_windows_path "$target_path"; then
+    log_warning "Skipping $description - target path invalid or inaccessible: $target_path"
+    return 1
+  fi
+  
+  # Check if link already exists
+  if [[ -L "$link_path" ]]; then
+    local current_target
+    current_target=$(readlink "$link_path")
+    if [[ "$current_target" == "$target_path" ]]; then
+      log_info "$description symlink already exists and is correct"
+      return 0
+    else
+      log_info "Updating existing $description symlink"
+      rm "$link_path"
+    fi
+  elif [[ -e "$link_path" ]]; then
+    log_warning "$link_path already exists as a regular file/directory, skipping"
+    return 1
+  fi
+  
+  # Create parent directory if needed
+  local parent_dir
+  parent_dir=$(dirname "$link_path")
+  if [[ ! -d "$parent_dir" ]]; then
+    mkdir -p "$parent_dir" || {
+      log_error "Failed to create parent directory: $parent_dir"
+      return 1
+    }
+  fi
+  
+  # Create symlink
+  if ln -s "$target_path" "$link_path"; then
+    log_success "Created $description symlink: $link_path -> $target_path"
+    return 0
+  else
+    log_error "Failed to create $description symlink"
+    return 1
+  fi
+}
+
+# Enhanced symlink setup with validation
+setup_windows_symlinks() {
+  init_logging
+  
+  if ! grep -qi microsoft /proc/version; then
+    log_info "Not running in WSL environment. Skipping Windows path symlinks."
+    finish_logging
+    return 0
+  fi
+  
+  log_info "Setting up Windows path symlinks with validation..."
+  
+  local WIN_USERNAME
+  WIN_USERNAME=$(get_windows_username)
+  local WIN_HOSTNAME
+  WIN_HOSTNAME=$(get_windows_hostname)
+  
+  log_info "Windows username: $WIN_USERNAME"
+  log_info "Windows hostname: $WIN_HOSTNAME"
+  
+  # Define symlink configurations
+  declare -A SYMLINK_CONFIGS=(
+    ["/mnt/c/Users/$WIN_USERNAME/Desktop"]="$HOME/Desktop:Windows Desktop"
+    ["/mnt/c/Users/$WIN_USERNAME/Documents"]="$HOME/Documents:Windows Documents"
+    ["/mnt/c/Users/$WIN_USERNAME/Downloads"]="$HOME/Downloads:Windows Downloads"
+    ["/mnt/c/Users/$WIN_USERNAME/source"]="$HOME/source:Windows Source"
+  )
+  
+  local success_count=0
+  local total_count=${#SYMLINK_CONFIGS[@]}
+  
+  for target_path in "${!SYMLINK_CONFIGS[@]}"; do
+    local link_info="${SYMLINK_CONFIGS[$target_path]}"
+    local link_path="${link_info%%:*}"
+    local description="${link_info#*:}"
+    
+    if create_safe_symlink "$target_path" "$link_path" "$description"; then
+      ((success_count++))
+    fi
+  done
+  
+  log_info "Successfully created $success_count/$total_count symlinks"
+  finish_logging
+}
+```
+
+**Benefits**: Prevents broken symlinks from being created, validates path accessibility before operations, protects against directory traversal attacks, and provides better error handling and recovery.
+
+## **3. Inefficient Resource Calculation and System Configuration**
+
+**Issue**: The script performs expensive operations like memory calculation and file system operations repeatedly without caching, and doesn't validate system resources before making changes.
+
+**Recommendation**:
+```bash:util-wsl.sh
+# Add system resource caching and validation
+declare -A SYSTEM_INFO_CACHE=()
+readonly CACHE_TTL=300  # 5 minutes
+
+get_cached_system_info() {
+  local info_type="$1"
+  local cache_key="system_${info_type}"
+  local current_time
+  current_time=$(date +%s)
+  
+  # Check if we have cached data
+  if [[ -n "${SYSTEM_INFO_CACHE[$cache_key]:-}" ]]; then
+    local cached_data="${SYSTEM_INFO_CACHE[$cache_key]}"
+    local cache_time="${cached_data%%:*}"
+    local cache_value="${cached_data#*:}"
+    
+    # Check if cache is still valid
+    if [[ $((current_time - cache_time)) -lt $CACHE_TTL ]]; then
+      echo "$cache_value"
+      return 0
+    fi
+  fi
+  
+  # Cache miss or expired, get fresh data
+  local fresh_value
+  case "$info_type" in
+    "memory_gb")
+      fresh_value=$(get_system_memory_gb)
+      ;;
+    "disk_space_gb")
+      fresh_value=$(get_available_disk_space_gb)
+      ;;
+    "cpu_cores")
+      fresh_value=$(nproc)
+      ;;
+    *)
+      log_error "Unknown system info type: $info_type"
+      return 1
+      ;;
+  esac
+  
+  # Cache the result
+  SYSTEM_INFO_CACHE[$cache_key]="${current_time}:${fresh_value}"
+  echo "$fresh_value"
+}
+
+get_system_memory_gb() {
+  local memory_kb
+  memory_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+  echo "scale=1; $memory_kb / 1024 / 1024" | bc
+}
+
+get_available_disk_space_gb() {
+  local available_kb
+  available_kb=$(df /var/lib/docker 2>/dev/null | awk 'NR==2 {print $4}' || df / | awk 'NR==2 {print $4}')
+  echo "scale=1; $available_kb / 1024 / 1024" | bc
+}
+
+validate_system_resources() {
+  local operation="$1"
+  
+  case "$operation" in
+    "wsl_optimization")
+      # Check minimum requirements for WSL optimization
+      local memory_gb
+      memory_gb=$(get_cached_system_info "memory_gb")
+      
+      if (( $(echo "$memory_gb < 4" | bc -l) )); then
+        log_warning "Low system memory ($memory_gb GB). WSL optimization may not be effective."
+        return 1
+      fi
+      
+      local disk_gb
+      disk_gb=$(get_cached_system_info "disk_space_gb")
+      
+      if (( $(echo "$disk_gb < 10" | bc -l) )); then
+        log_warning "Low disk space ($disk_gb GB). Optimization may fail."
+        return 1
+      fi
+      ;;
+    "swap_creation")
+      local available_disk
+      available_disk=$(get_cached_system_info "disk_space_gb")
+      
+      if (( $(echo "$available_disk < 5" | bc -l) )); then
+        log_error "Insufficient disk space for swap file creation"
+        return 1
+      fi
+      ;;
+  esac
+  
+  return 0
+}
+
+# Enhanced performance optimization with resource validation
+optimize_wsl_performance() {
+  init_logging
+  
+  if ! grep -qi microsoft /proc/version; then
+    log_info "Not running in WSL environment. Skipping WSL performance optimizations."
+    finish_logging
+    return 0
+  fi
+  
+  # Validate system resources before optimization
+  if ! validate_system_resources "wsl_optimization"; then
+    log_warning "System resources may be insufficient for optimization"
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      log_info "WSL optimization cancelled"
+      finish_logging
+      return 0
+    fi
+  fi
+  
+  log_info "Applying WSL performance optimizations..."
+  
+  # Get system information with caching
+  local total_memory_gb
+  total_memory_gb=$(get_cached_system_info "memory_gb")
+  local cpu_cores
+  cpu_cores=$(get_cached_system_info "cpu_cores")
+  
+  # Calculate optimal WSL memory allocation (50% of total, min 4GB, max 16GB)
+  local wsl_memory_gb
+  wsl_memory_gb=$(echo "scale=0; $total_memory_gb / 2" | bc)
+  
+  if (( $(echo "$wsl_memory_gb < 4" | bc -l) )); then
+    wsl_memory_gb=4
+  elif (( $(echo "$wsl_memory_gb > 16" | bc -l) )); then
+    wsl_memory_gb=16
+  fi
+  
+  # Calculate optimal processor count (75% of total, min 2, max 8)
+  local wsl_processors
+  wsl_processors=$(echo "scale=0; $cpu_cores * 0.75" | bc)
+  wsl_processors=${wsl_processors%.*}  # Remove decimal part
+  
+  if [[ $wsl_processors -lt 2 ]]; then
+    wsl_processors=2
+  elif [[ $wsl_processors -gt 8 ]]; then
+    wsl_processors=8
+  fi
+  
+  # Create optimized .wslconfig
+  local WIN_USERNAME
+  WIN_USERNAME
+```
+<think>The user wants me to continue with the third suggestion about inefficient resource calculation and system configuration. I was in the middle of providing the code for the enhanced performance optimization with resource validation. Let me continue from where I left off and then provide the 4th and 5th suggestions.</think>
+```bash:util-wsl.sh
+  WIN_USERNAME=$(get_windows_username)
+  
+  local wsl_config="[wsl2]
+# Optimized WSL configuration based on system resources
+memory=${wsl_memory_gb}GB
+processors=$wsl_processors
+localhostForwarding=true
+kernelCommandLine=cgroup_no_v1=all systemd.unified_cgroup_hierarchy=1
+swap=${wsl_memory_gb}GB
+swapFile=%USERPROFILE%\\AppData\\Local\\Temp\\swap.vhdx
+
+[experimental]
+autoMemoryReclaim=gradual
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true"
+  
+  local wsl_config_path="/mnt/c/Users/$WIN_USERNAME/.wslconfig"
+  
+  if create_system_file_safely "$wsl_config_path" "$wsl_config" "WSL configuration"; then
+    log_success "WSL performance optimization completed"
+    log_info "Allocated memory: ${wsl_memory_gb}GB (of ${total_memory_gb}GB total)"
+    log_info "Allocated processors: $wsl_processors (of $cpu_cores total)"
+    log_info "Restart WSL for changes to take effect: wsl --shutdown"
+  else
+    log_error "Failed to create WSL configuration"
+    finish_logging
+    return 1
+  fi
+  
+  finish_logging
+}
+```
+
+**Benefits**: Reduces expensive system calls through intelligent caching, validates system resources before making changes, provides adaptive configuration based on actual system capabilities, and prevents resource over-allocation that could destabilize the system.
+
+## **4. Monolithic Functions and Lack of Error Recovery**
+
+**Issue**: Functions like `optimize_wsl_performance()` and `setup_wsl_conf()` perform multiple operations without proper rollback mechanisms if intermediate steps fail.
+
+**Recommendation**:
+```bash:util-wsl.sh
+# Add transaction-style operations with rollback
+declare -A OPERATION_STACK=()
+declare -i OPERATION_ID=0
+
+begin_operation() {
+  local description="$1"
+  ((OPERATION_ID++))
+  OPERATION_STACK[$OPERATION_ID]="$description"
+  log_debug "Started operation $OPERATION_ID: $description"
+  echo "$OPERATION_ID"
+}
+
+rollback_operation() {
+  local op_id="$1"
+  local description="${OPERATION_STACK[$op_id]:-unknown}"
+  
+  log_info "Rolling back operation $op_id: $description"
+  
+  case "$description" in
+    "wsl_conf_update")
+      rollback_wsl_conf
+      ;;
+    "resolv_conf_update")
+      rollback_resolv_conf
+      ;;
+    "wslconfig_creation")
+      rollback_wslconfig
+      ;;
+    "symlink_creation")
+      rollback_symlinks
+      ;;
+  esac
+  
+  unset OPERATION_STACK[$op_id]
+}
+
+rollback_wsl_conf() {
+  local backup_file="/etc/wsl.conf.backup.$(date +%Y%m%d)_*"
+  local latest_backup
+  latest_backup=$(ls -t $backup_file 2>/dev/null | head -1)
+  
+  if [[ -n "$latest_backup" ]] && [[ -f "$latest_backup" ]]; then
+    sudo cp "$latest_backup" /etc/wsl.conf
+    log_info "Restored /etc/wsl.conf from backup"
+  else
+    sudo rm -f /etc/wsl.conf
+    log_info "Removed /etc/wsl.conf (no backup found)"
+  fi
+}
+
+rollback_symlinks() {
+  # Remove symlinks created in this session
+  for link in "$HOME/Desktop" "$HOME/Documents" "$HOME/Downloads" "$HOME/source"; do
+    if [[ -L "$link" ]]; then
+      rm "$link"
+      log_info "Removed symlink: $link"
+    fi
+  done
+}
+
+# Enhanced modular functions with rollback support
+update_wsl_conf_atomic() {
+  local op_id
+  op_id=$(begin_operation "wsl_conf_update")
+  
+  local wsl_config="[boot]
+systemd=true
+
+[automount]
+enabled = false
+root = /
+options = metadata,uid=1000,gid=1000,umask=022,fmask=111
+mountFsTab = true
+
+[interop]
+enabled = true
+appendWindowsPath = false
+
+[network]
+hostname = $(get_windows_hostname | tr '[:upper:]' '[:lower:]')
+generateHosts = true
+generateResolvConf = true"
+  
+  if ! create_system_file_safely "/etc/wsl.conf" "$wsl_config" "WSL configuration"; then
+    rollback_operation "$op_id"
+    return 1
+  fi
+  
+  # Validate the configuration
+  if ! validate_wsl_conf; then
+    log_error "WSL configuration validation failed"
+    rollback_operation "$op_id"
+    return 1
+  fi
+  
+  unset OPERATION_STACK[$op_id]
+  return 0
+}
+
+validate_wsl_conf() {
+  local wsl_conf="/etc/wsl.conf"
+  
+  if [[ ! -f "$wsl_conf" ]]; then
+    log_error "WSL configuration file not found"
+    return 1
+  fi
+  
+  # Check for required sections
+  local required_sections=("boot" "automount" "interop" "network")
+  for section in "${required_sections[@]}"; do
+    if ! grep -q "^\[$section\]" "$wsl_conf"; then
+      log_error "Missing required section in wsl.conf: $section"
+      return 1
+    fi
+  done
+  
+  # Check for systemd setting
+  if ! grep -q "systemd=true" "$wsl_conf"; then
+    log_warning "systemd not enabled in wsl.conf"
+  fi
+  
+  log_success "WSL configuration validation passed"
+  return 0
+}
+
+# Orchestrated setup with comprehensive error handling
+setup_wsl_environment_complete() {
+  init_logging
+  
+  if ! grep -qi microsoft /proc/version; then
+    log_info "Not running in WSL environment"
+    finish_logging
+    return 0
+  fi
+  
+  local operations=()
+  local failed_operations=()
+  
+  log_info "Setting up complete WSL environment..."
+  
+  # Execute operations in sequence with error tracking
+  local current_op="WSL configuration update"
+  log_info "Executing: $current_op"
+  if update_wsl_conf_atomic; then
+    operations+=("$current_op:SUCCESS")
+  else
+    operations+=("$current_op:FAILED")
+    failed_operations+=("$current_op")
+  fi
+  
+  current_op="Windows symlinks setup"
+  log_info "Executing: $current_op"
+  if setup_windows_symlinks_atomic; then
+    operations+=("$current_op:SUCCESS")
+  else
+    operations+=("$current_op:FAILED")
+    failed_operations+=("$current_op")
+  fi
+  
+  current_op="WSL performance optimization"
+  log_info "Executing: $current_op"
+  if optimize_wsl_performance_atomic; then
+    operations+=("$current_op:SUCCESS")
+  else
+    operations+=("$current_op:FAILED")
+    failed_operations+=("$current_op")
+  fi
+  
+  # Generate operation report
+  log_info "=== WSL Setup Summary ==="
+  for operation in "${operations[@]}"; do
+    local op_name="${operation%%:*}"
+    local op_status="${operation#*:}"
+    
+    case "$op_status" in
+      "SUCCESS")
+        log_success "$op_name: COMPLETED"
+        ;;
+      "FAILED")
+        log_error "$op_name: FAILED"
+        ;;
+    esac
+  done
+  
+  if [[ ${#failed_operations[@]} -eq 0 ]]; then
+    log_success "WSL environment setup completed successfully"
+    log_info "Please restart WSL for all changes to take effect: wsl --shutdown"
+    finish_logging
+    return 0
+  else
+    log_warning "WSL environment setup completed with ${#failed_operations[@]} failures"
+    finish_logging
+    return 1
+  fi
+}
+```
+
+**Benefits**: Provides atomic operations with rollback capabilities, enables partial recovery from failures, improves error traceability and debugging, and maintains system consistency even when operations fail.
+
+## **5. Insufficient Configuration Validation and Environment Consistency Checking**
+
+**Issue**: The script creates configuration files without validating their correctness or checking if the resulting environment is consistent and functional.
+
+**Recommendation**:
+```bash:util-wsl.sh
+# Add comprehensive environment validation
+validate_wsl_environment() {
+  local validation_results=()
+  local critical_failures=0
+  
+  log_info "Validating WSL environment configuration..."
+  
+  # Test 1: WSL configuration syntax
+  if validate_wsl_conf_syntax; then
+    validation_results+=("WSL configuration syntax:PASS")
+  else
+    validation_results+=("WSL configuration syntax:FAIL")
+    ((critical_failures++))
+  fi
+  
+  # Test 2: Systemd availability
+  if validate_systemd_integration; then
+    validation_results+=("Systemd integration:PASS")
+  else
+    validation_results+=("Systemd integration:WARN")
+  fi
+  
+  # Test 3: Windows path accessibility
+  if validate_windows_paths; then
+    validation_results+=("Windows path access:PASS")
+  else
+    validation_results+=("Windows path access:WARN")
+  fi
+  
+  # Test 4: Network connectivity
+  if validate_network_configuration; then
+    validation_results+=("Network configuration:PASS")
+  else
+    validation_results+=("Network configuration:WARN")
+  fi
+  
+  # Test 5: Resource allocation
+  if validate_resource_allocation; then
+    validation_results+=("Resource allocation:PASS")
+  else
+    validation_results+=("Resource allocation:WARN")
+  fi
+  
+  # Generate validation report
+  generate_validation_report "${validation_results[@]}"
+  
+  if [[ $critical_failures -eq 0 ]]; then
+    log_success "WSL environment validation passed"
+    return 0
+  else
+    log_error "WSL environment validation failed with $critical_failures critical issues"
+    return 1
+  fi
+}
+
+validate_wsl_conf_syntax() {
+  local wsl_conf="/etc/wsl.conf"
+  
+  if [[ ! -f "$wsl_conf" ]]; then
+    log_error "WSL configuration file missing"
+    return 1
+  fi
+  
+  # Check for syntax errors using a simple parser
+  local line_number=0
+  local current_section=""
+  local syntax_errors=0
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    ((line_number++))
+    
+    # Skip empty lines and comments
+    [[ -z "$line" ]] || [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    
+    # Check section headers
+    if [[ "$line" =~ ^\[([^\]]+)\]$ ]]; then
+      current_section="${BASH_REMATCH[1]}"
+      continue
+    fi
+    
+    # Check key=value pairs
+    if [[ "$line" =~ ^[[:space:]]*([^=]+)=[[:space:]]*(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]// /}"
+      local value="${BASH_REMATCH[2]}"
+      
+      # Validate known keys
+      if [[ -n "$current_section" ]]; then
+        if ! validate_wsl_conf_key "$current_section" "$key" "$value"; then
+          log_warning "Line $line_number: Invalid configuration - [$current_section] $key=$value"
+          ((syntax_errors++))
+        fi
+      fi
+    else
+      log_warning "Line $line_number: Invalid syntax - $line"
+      ((syntax_errors++))
+    fi
+  done < "$wsl_conf"
+  
+  if [[ $syntax_errors -eq 0 ]]; then
+    log_success "WSL configuration syntax is valid"
+    return 0
+  else
+    log_error "Found $syntax_errors syntax errors in WSL configuration"
+    return 1
+  fi
+}
+
+validate_wsl_conf_key() {
+  local section="$1"
+  local key="$2"
+  local value="$3"
+  
+  case "$section" in
+    "boot")
+      case "$key" in
+        "systemd")
+          [[ "$value" =~ ^(true|false)$ ]] || return 1
+          ;;
+        "command")
+          # Allow any command
+          ;;
+        *)
+          log_debug "Unknown boot key: $key"
+          ;;
+      esac
+      ;;
+    "automount")
+      case "$key" in
+        "enabled"|"mountFsTab")
+          [[ "$value" =~ ^(true|false)$ ]] || return 1
+          ;;
+        "root"|"options")
+          # Allow any path/options
+          ;;
+        *)
+          log_debug "Unknown automount key: $key"
+          ;;
+      esac
+      ;;
+    "network")
+      case "$key" in
+        "generateHosts"|"generateResolvConf")
+          [[ "$value" =~ ^(true|false)$ ]] || return 1
+          ;;
+        "hostname")
+          # Validate hostname format
+          [[ "$value" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] || return 1
+          ;;
+        *)
+          log_debug "Unknown network key: $key"
+          ;;
+      esac
+      ;;
+    "interop")
+      case "$key" in
+        "enabled"|"appendWindowsPath")
+          [[ "$value" =~ ^(true|false)$ ]] || return 1
+          ;;
+        *)
+          log_debug "Unknown interop key: $key"
+          ;;
+      esac
+      ;;
+  esac
+  
+  return 0
+}
+
+validate_systemd_integration() {
+  # Check if systemd should be enabled
+  if ! grep -q "systemd=true" /etc/wsl.conf 2>/dev/null; then
+    log_info "Systemd not enabled in configuration"
+    return 0
+  fi
+  
+  # Check if systemd is actually running
+  if [[ -d /run/systemd/system ]]; then
+    log_success "Systemd is running"
+    return 0
+  else
+    log_warning "Systemd configured but not running - restart WSL required"
+    return 1
+  fi
+}
+
+validate_windows_paths() {
+  local WIN_USERNAME
+  WIN_USERNAME=$(get_windows_username)
+  
+  local windows_paths=(
+    "/mnt/c/Users/$WIN_USERNAME/Desktop"
+    "/mnt/c/Users/$WIN_USERNAME/Documents"
+    "/mnt/c/Users/$WIN_USERNAME/Downloads"
+  )
+  
+  local accessible_paths=0
+  
+  for path in "${windows_paths[@]}"; do
+    if [[ -d "$path" ]] && [[ -r "$path" ]]; then
+      ((accessible_paths++))
+    fi
+  done
+  
+  if [[ $accessible_paths -eq ${#windows_paths[@]} ]]; then
+    log_success "All Windows paths are accessible"
+```
+<think>The user wants me to continue with the 5th suggestion about insufficient configuration validation and environment consistency checking. I was in the middle of the validate_windows_paths function. Let me continue from there and finish this suggestion, then provide the summary.</think>
+```bash:util-wsl.sh
+    return 0
+  elif [[ $accessible_paths -gt 0 ]]; then
+    log_warning "Some Windows paths are not accessible ($accessible_paths/${#windows_paths[@]})"
+    return 1
+  else
+    log_error "No Windows paths are accessible"
+    return 1
+  fi
+}
+
+validate_network_configuration() {
+  # Test basic connectivity
+  if ! timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+    log_warning "No internet connectivity detected"
+    return 1
+  fi
+  
+  # Test DNS resolution
+  if ! timeout 5 nslookup google.com >/dev/null 2>&1; then
+    log_warning "DNS resolution issues detected"
+    return 1
+  fi
+  
+  # Check localhost forwarding if configured
+  if grep -q "localhostForwarding=true" /mnt/c/Users/*/\.wslconfig 2>/dev/null; then
+    # Test localhost forwarding (this is a basic test)
+    if command -v netstat >/dev/null 2>&1; then
+      local listening_ports
+      listening_ports=$(netstat -tlnp 2>/dev/null | grep -c ":.*LISTEN" || echo "0")
+      log_info "Found $listening_ports services listening on ports"
+    fi
+  fi
+  
+  log_success "Network configuration is functional"
+  return 0
+}
+
+validate_resource_allocation() {
+  local WIN_USERNAME
+  WIN_USERNAME=$(get_windows_username)
+  local wslconfig_path="/mnt/c/Users/$WIN_USERNAME/.wslconfig"
+  
+  if [[ ! -f "$wslconfig_path" ]]; then
+    log_info "No .wslconfig found - using default resource allocation"
+    return 0
+  fi
+  
+  # Parse memory allocation
+  local allocated_memory
+  allocated_memory=$(grep "^memory=" "$wslconfig_path" 2>/dev/null | cut -d'=' -f2 | tr -d 'GB' || echo "0")
+  
+  if [[ -n "$allocated_memory" ]] && [[ "$allocated_memory" != "0" ]]; then
+    local total_memory_gb
+    total_memory_gb=$(get_cached_system_info "memory_gb")
+    
+    # Check if allocation is reasonable (not more than 80% of total)
+    local max_reasonable
+    max_reasonable=$(echo "scale=0; $total_memory_gb * 0.8" | bc -l)
+    
+    if (( $(echo "$allocated_memory > $max_reasonable" | bc -l) )); then
+      log_warning "WSL memory allocation (${allocated_memory}GB) exceeds recommended maximum (${max_reasonable}GB)"
+      return 1
+    fi
+    
+    log_success "Resource allocation is within reasonable limits"
+    return 0
+  fi
+  
+  return 0
+}
+
+generate_validation_report() {
+  local results=("$@")
+  local report_file="/tmp/wsl_validation_$(date +%Y%m%d_%H%M%S).txt"
+  
+  {
+    echo "=== WSL Environment Validation Report ==="
+    echo "Generated: $(date)"
+    echo "System: $(uname -a)"
+    echo "WSL Version: $(get_wsl_version)"
+    echo ""
+    
+    echo "=== Validation Results ==="
+    local passed=0
+    local warnings=0
+    local failed=0
+    
+    for result in "${results[@]}"; do
+      local test_name="${result%%:*}"
+      local test_result="${result#*:}"
+      
+      case "$test_result" in
+        "PASS")
+          echo "✓ $test_name"
+          ((passed++))
+          ;;
+        "WARN")
+          echo "⚠ $test_name"
+          ((warnings++))
+          ;;
+        "FAIL")
+          echo "✗ $test_name"
+          ((failed++))
+          ;;
+      esac
+    done
+    
+    echo ""
+    echo "=== Summary ==="
+    echo "Passed: $passed"
+    echo "Warnings: $warnings"
+    echo "Failed: $failed"
+    echo "Total: $((passed + warnings + failed))"
+    
+    if [[ $failed -eq 0 ]]; then
+      echo "Overall Status: HEALTHY ✓"
+    elif [[ $failed -eq 1 ]]; then
+      echo "Overall Status: MINOR ISSUES ⚠"
+    else
+      echo "Overall Status: CRITICAL ISSUES ✗"
+    fi
+    
+    echo ""
+    echo "=== Recommendations ==="
+    
+    if [[ $failed -gt 0 ]]; then
+      echo "- Address critical configuration issues before proceeding"
+      echo "- Consider running setup scripts again to fix failures"
+    fi
+    
+    if [[ $warnings -gt 0 ]]; then
+      echo "- Review warning items for optimal performance"
+      echo "- Some features may not work as expected"
+    fi
+    
+    if [[ $failed -eq 0 ]] && [[ $warnings -eq 0 ]]; then
+      echo "- Configuration is optimal"
+      echo "- No action required"
+    fi
+    
+  } | tee "$report_file"
+  
+  log_info "Validation report saved to: $report_file"
+  
+  # Also create a simple status file for automation
+  local status_file="/tmp/wsl_validation_status.txt"
+  if [[ $failed -eq 0 ]]; then
+    echo "HEALTHY" > "$status_file"
+  else
+    echo "ISSUES_DETECTED" > "$status_file"
+  fi
+}
+
+# Enhanced environment setup with validation
+setup_wsl_environment_validated() {
+  init_logging
+  
+  if ! grep -qi microsoft /proc/version; then
+    log_info "Not running in WSL environment"
+    finish_logging
+    return 0
+  fi
+  
+  log_info "Setting up WSL environment with validation..."
+  
+  # Pre-setup validation
+  log_info "Running pre-setup environment checks..."
+  local pre_validation_passed=true
+  
+  if ! validate_system_resources "wsl_optimization"; then
+    log_warning "System resource validation failed"
+    pre_validation_passed=false
+  fi
+  
+  # Proceed with setup if pre-validation passed or user confirms
+  if [[ "$pre_validation_passed" != "true" ]]; then
+    read -p "Pre-validation failed. Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      log_info "WSL setup cancelled due to pre-validation failures"
+      finish_logging
+      return 1
+    fi
+  fi
+  
+  # Execute main setup
+  if ! setup_wsl_environment_complete; then
+    log_error "WSL environment setup failed"
+    finish_logging
+    return 1
+  fi
+  
+  # Post-setup validation
+  log_info "Running post-setup validation..."
+  if validate_wsl_environment; then
+    log_success "WSL environment setup and validation completed successfully"
+    log_info "Environment is ready for use"
+  else
+    log_warning "WSL environment setup completed but validation found issues"
+    log_info "Check the validation report for details"
+  fi
+  
+  finish_logging
+}
+```
+
+**Benefits**: Ensures configuration correctness before deployment, provides comprehensive environment health checking, enables proactive issue detection and resolution, and generates detailed reports for troubleshooting and maintenance.
+
+---
+
+## **Summary**
+
+The `util-wsl.sh` script demonstrates good foundational knowledge of WSL integration and environment management. However, there are **significant opportunities to enhance code quality and robustness**, particularly in critical areas affecting system security and reliability.
+
+**Critical Issues Identified:**
+
+- **Security vulnerabilities** in Windows command execution and file operations that could be exploited
+- **Path validation gaps** that could lead to broken symlinks or security issues
+- **Resource management inefficiencies** causing unnecessary system load and poor performance
+- **Lack of error recovery** mechanisms that could leave systems in inconsistent states
+- **Insufficient validation** of configuration changes that could result in broken WSL environments
+
+**Overall Assessment:**
+
+While the script provides useful WSL integration functionality, it **requires substantial security and reliability improvements** to meet production standards. The current implementation prioritizes basic functionality but lacks the defensive programming practices necessary for enterprise environments.
+
+**Key Benefits of Implementing These Improvements:**
+
+- **Enhanced Security**: Protection against command injection and unsafe file operations
+- **Improved Reliability**: Atomic operations with rollback capabilities and comprehensive validation
+- **Better Performance**: Resource caching and system-aware configuration optimization
+- **Increased Maintainability**: Modular design with clear error handling and recovery paths
+- **Superior User Experience**: Proactive validation and detailed diagnostic reporting
+
+**Risk Assessment:**
+
+The current script poses **moderate to high risk** in enterprise environments due to security vulnerabilities and lack of error recovery. The suggested improvements would transform it from a functional utility into a **production-ready, enterprise-grade WSL management solution** with comprehensive safety measures and validation capabilities.
+
+The code shows good understanding of WSL concepts but needs significant hardening to be suitable for automated deployment or use in security-conscious environments.

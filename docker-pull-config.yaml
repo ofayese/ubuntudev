@@ -1,7 +1,7 @@
 # docker-pull-config.yaml
 # Configuration file for docker-pull-essentials.sh
-# Version: 1.1.0
-# Last updated: 2025-06-11
+# Version: 2.0.0
+# Last updated: 2025-06-13
 
 # Global settings
 settings:
@@ -11,6 +11,19 @@ settings:
   log_file: "docker-pull.log"
   skip_ai: false      # Skip AI/ML models
   skip_windows: false # Skip Windows-specific images
+  # Version management configuration
+  version_strategy: "pinned"  # pinned, latest, or mixed
+  security_scan_enabled: true
+
+# Resource management settings
+resource_management:
+  disk_space:
+    minimum_free_gb: 20
+    recommended_free_gb: 50
+    check_before_pull: true
+  bandwidth:
+    max_concurrent_downloads: 4
+    prefer_local_mirror: true
 
 # Image categories to pull
 # Set enabled: false to skip entire categories
@@ -18,125 +31,375 @@ categories:
   base_os:
     enabled: true
     description: "Essential base operating system images"
+    priority: 1  # Higher priority = pull first
+    total_size_estimate_mb: 150
     images:
-      - "ubuntu:latest"
-      - "debian:latest"
-      - "alpine:latest"
+      - name: "ubuntu"
+        tag: "22.04"
+        digest: "sha256:77906da86b60585ce12215807090eb327e7386c8fafb5402369e421f44eff17e"
+        size_mb: 77
+        priority: "essential"
+      - name: "debian"
+        tag: "12-slim"
+        digest: "sha256:5a85f3e9c6b51bb6073dfc783224775f7b9aa93aed54fb51a3fa89bd67e66f02"
+        size_mb: 54
+        priority: "essential"
+      - name: "alpine"
+        tag: "3.19"
+        digest: "sha256:c5b1261d6d3e43071626931fc004f70149baeba2c8ec672bd4f27761f8e1ad6b"
+        size_mb: 7
+        priority: "essential"
 
   programming_languages:
     enabled: true
     description: "Programming language runtimes"
+    priority: 2
+    total_size_estimate_mb: 1500
     images:
-      - "python:latest"
-      - "node:latest"
-      - "openjdk:latest"
-      - "golang:latest"
-      - "ruby:latest"
-      - "php:latest"
+      - name: "python"
+        tag: "3.12-slim"
+        digest: "sha256:5bef08944ef1a56648f254d8c0ca277ace2d773affb6b4f1f12ec0f9f8d5566b"
+        size_mb: 150
+        priority: "high"
+      - name: "node"
+        tag: "20-alpine"
+        digest: "sha256:0e9b91b16ab323a5d6c93a269ed8872da6da3de94a690fa97d6fab69ebc93a25"
+        size_mb: 120
+        priority: "high"
+      - name: "openjdk"
+        tag: "21-jdk-slim"
+        digest: "sha256:ffa45b1fe7c28c27e1fd42bb248599e3bd32186fbd69a9d92a101c8386fc9d0c"
+        size_mb: 450
+        priority: "medium"
+      - name: "golang"
+        tag: "1.22-alpine"
+        digest: "sha256:69bf5bc386b5c9a3c8a2a62932a658aeb4c41a4729fd2267db1966a34d0ab488"
+        size_mb: 350
+        priority: "medium"
+      - name: "ruby"
+        tag: "3.3-slim"
+        digest: "sha256:9e52cb3c959a41599ea3bfeb5cd09c4d8e14f3c2d6e5dc0c7e9bb6969e6a362e"
+        size_mb: 180
+        priority: "low"
+      - name: "php"
+        tag: "8.3-cli-alpine"
+        digest: "sha256:dce825c550d65adb2d9c97a903e25883cc3bf3c839ffbcd1b2590f73e5cfff7d"
+        size_mb: 140
+        priority: "low"
 
   databases:
     enabled: true
     description: "Database systems"
+    priority: 3
+    total_size_estimate_mb: 2000
     images:
-      - "postgres:latest"
-      - "mysql:latest"
-      - "mariadb:latest"
-      - "mongo:latest"
-      - "redis:latest"
-      - "redis/redis-stack:latest"
-      - "pgvector/pgvector:latest"
-      - "myscale/myscaledb:latest"
+      - name: "postgres"
+        tag: "16-alpine"
+        digest: "sha256:8a01e0e83a33111570dc81fa78a5afb41b3e1aea6ee42b8f08d5ed8a3b90c3f2"
+        size_mb: 250
+        priority: "medium"
+      - name: "mysql"
+        tag: "8.0"
+        digest: "sha256:6ce54b6a3ce53d77c71d14d5faf10dc0a81c8b6812e1d4273c5447c96e5b246f"
+        size_mb: 450
+        priority: "medium"
+      - name: "mariadb"
+        tag: "11.2"
+        digest: "sha256:b42a18fe5c7e2a7bb047f24ea8a0eeac87e8fdc4c5db2f9c93a43c3c82ee4f0b"
+        size_mb: 400
+        priority: "medium"
+      - name: "mongo"
+        tag: "7.0"
+        digest: "sha256:e5cfea78c68c7cff723b010cc5b4d04f2f97dd7a61e7c52d0805a1b08e83c8ca"
+        size_mb: 700
+        priority: "medium"
+      - name: "redis"
+        tag: "7.2-alpine"
+        digest: "sha256:5a9b46c4a9d3809bd94a6befa078f3148c23f61bc1e194bbc9c14d9ad3e18f9b"
+        size_mb: 50
+        priority: "high"
+      - name: "redis/redis-stack"
+        tag: "7.2.0-v0"
+        size_mb: 150
+        priority: "low"
+      - name: "pgvector/pgvector"
+        tag: "pg16"
+        size_mb: 300
+        priority: "low"
+      - name: "myscale/myscaledb"
+        tag: "latest-20240501"
+        size_mb: 800
+        priority: "low"
 
   devcontainers:
     enabled: true
     description: "Development container images"
+    priority: 3
+    total_size_estimate_mb: 5000
     images:
-      - "mcr.microsoft.com/devcontainers/universal:latest"
-      - "mcr.microsoft.com/devcontainers/base:ubuntu-24.04"
-      - "mcr.microsoft.com/devcontainers/python:3"
-      - "mcr.microsoft.com/devcontainers/javascript-node:latest"
+      - name: "mcr.microsoft.com/devcontainers/universal"
+        tag: "2-linux"
+        size_mb: 2500
+        priority: "medium"
+      - name: "mcr.microsoft.com/devcontainers/base"
+        tag: "ubuntu-24.04"
+        size_mb: 800
+        priority: "high"
+      - name: "mcr.microsoft.com/devcontainers/python"
+        tag: "3-bullseye"
+        size_mb: 1200
+        priority: "medium"
+      - name: "mcr.microsoft.com/devcontainers/javascript-node"
+        tag: "20-bullseye"
+        size_mb: 1000
+        priority: "medium"
 
   microsoft_dotnet:
     enabled: true
     description: "Microsoft .NET and related images"
+    priority: 4
+    total_size_estimate_mb: 5500
     images:
-      - "mcr.microsoft.com/dotnet/sdk:9.0"
-      - "mcr.microsoft.com/dotnet/aspnet:9.0"
-      - "mcr.microsoft.com/dotnet/runtime:9.0"
-      - "mcr.microsoft.com/dotnet/framework/aspnet:4.8.1"
-      - "mcr.microsoft.com/dotnet/framework/runtime:4.8.1"
-      - "mcr.microsoft.com/powershell:latest"
-      - "mcr.microsoft.com/azure-powershell:ubuntu-22.04"
+      - name: "mcr.microsoft.com/dotnet/sdk"
+        tag: "9.0"
+        size_mb: 800
+        priority: "high"
+      - name: "mcr.microsoft.com/dotnet/aspnet"
+        tag: "9.0"
+        size_mb: 350
+        priority: "high"
+      - name: "mcr.microsoft.com/dotnet/runtime"
+        tag: "9.0"
+        size_mb: 250
+        priority: "high"
+      - name: "mcr.microsoft.com/dotnet/framework/aspnet"
+        tag: "4.8.1"
+        size_mb: 1500
+        priority: "medium"
+      - name: "mcr.microsoft.com/dotnet/framework/runtime"
+        tag: "4.8.1"
+        size_mb: 1200
+        priority: "medium"
+      - name: "mcr.microsoft.com/powershell"
+        tag: "7.4-ubuntu-22.04"
+        size_mb: 350
+        priority: "medium"
+      - name: "mcr.microsoft.com/azure-powershell"
+        tag: "ubuntu-22.04"
+        size_mb: 1200
+        priority: "low"
 
   powershell_test_deps:
     enabled: true
     description: "PowerShell test dependencies"
+    priority: 5
+    total_size_estimate_mb: 2000
     images:
-      - "mcr.microsoft.com/powershell/test-deps:debian-12"
-      - "mcr.microsoft.com/powershell/test-deps:lts-ubuntu-22.04"
-      - "mcr.microsoft.com/powershell/test-deps:preview-alpine-3.16"
-      - "mcr.microsoft.com/powershell:preview-7.6-ubuntu-24.04"
-      - "mcr.microsoft.com/powershell:preview-alpine-3.20"
+      - name: "mcr.microsoft.com/powershell/test-deps"
+        tag: "debian-12"
+        size_mb: 400
+        priority: "low"
+      - name: "mcr.microsoft.com/powershell/test-deps"
+        tag: "lts-ubuntu-22.04"
+        size_mb: 450
+        priority: "low"
+      - name: "mcr.microsoft.com/powershell/test-deps"
+        tag: "preview-alpine-3.16"
+        size_mb: 250
+        priority: "low"
+      - name: "mcr.microsoft.com/powershell"
+        tag: "preview-7.6-ubuntu-24.04"
+        size_mb: 450
+        priority: "low"
+      - name: "mcr.microsoft.com/powershell"
+        tag: "preview-alpine-3.20"
+        size_mb: 300
+        priority: "low"
 
   web_servers:
     enabled: true
     description: "Web servers and proxies"
+    priority: 3
+    total_size_estimate_mb: 400
     images:
-      - "nginx:latest"
-      - "httpd:latest"
-      - "caddy:latest"
-      - "haproxy:latest"
+      - name: "nginx"
+        tag: "1.26-alpine"
+        digest: "sha256:20c92ceb0a30704c1a0b39681bd7a12ce972f1c86dd02b81d2a9d2fc16615d69"
+        size_mb: 50
+        priority: "high"
+      - name: "httpd"
+        tag: "2.4-alpine"
+        digest: "sha256:893c8aab34532ac5d5c08b69bd0d062e4a325df7dd13acd015ccec344a9495a1"
+        size_mb: 60
+        priority: "medium"
+      - name: "caddy"
+        tag: "2.7-alpine"
+        size_mb: 80
+        priority: "medium"
+      - name: "haproxy"
+        tag: "2.9-alpine"
+        size_mb: 35
+        priority: "medium"
 
   devops_tools:
     enabled: true
     description: "DevOps and CI/CD tools"
+    priority: 4
+    total_size_estimate_mb: 3000
     images:
-      - "docker:latest"
-      - "registry:latest"
-      - "portainer/portainer-ce:latest"
-      - "containrrr/watchtower:latest"
-      - "bitnami/kubectl:latest"
-      - "grafana/grafana:latest"
-      - "sonarqube:latest"
-      - "jenkins/jenkins:lts-jdk17"
+      - name: "docker"
+        tag: "24.0-dind-alpine"
+        size_mb: 300
+        priority: "high"
+      - name: "registry"
+        tag: "2.8"
+        size_mb: 30
+        priority: "medium"
+      - name: "portainer/portainer-ce"
+        tag: "2.19.1-alpine"
+        size_mb: 100
+        priority: "low"
+      - name: "containrrr/watchtower"
+        tag: "1.7-alpine"
+        size_mb: 20
+        priority: "low"
+      - name: "bitnami/kubectl"
+        tag: "1.29"
+        size_mb: 200
+        priority: "medium"
+      - name: "grafana/grafana"
+        tag: "10.2.0"
+        size_mb: 300
+        priority: "low"
+      - name: "sonarqube"
+        tag: "10.3-community"
+        size_mb: 600
+        priority: "low"
+      - name: "jenkins/jenkins"
+        tag: "lts-jdk17"
+        size_mb: 800
+        priority: "low"
 
   ai_ml:
     enabled: true
     description: "AI/ML models and tools"
+    priority: 6
+    total_size_estimate_mb: 60000
     images:
-      - "ai/llama3.2:latest"
-      - "ai/mistral:latest"
-      - "ai/deepcoder-preview"
-    models:
-      - "ai/smollm2:latest"
-      - "ai/llama3.3:latest"
-      - "ai/phi4:latest"
-      - "ai/qwen2.5:latest"
-      - "ai/mxbai-embed-large:latest"
+      - name: "ai/llama3.2"
+        tag: "7b-instruct-v1"
+        type: "container"
+        size_mb: 4200
+        gpu_required: false
+        priority: "low"
+        description: "Llama 3.2 language model container"
+      - name: "ai/mistral"
+        tag: "7b-instruct-v0.2"
+        type: "container"
+        size_mb: 3800
+        gpu_required: true
+        priority: "low"
+        description: "Mistral 7B instruction-tuned model"
+      - name: "ai/deepcoder-preview"
+        tag: "v1.0"
+        type: "container"
+        size_mb: 2100
+        gpu_required: false
+        priority: "low"
+        description: "DeepCoder preview model"
+      - name: "ai/smollm2"
+        tag: "2b-chat-v1"
+        type: "model"
+        size_mb: 1800
+        gpu_required: false
+        priority: "low"
+        description: "SmolLM2 compact language model"
+        model_format: "gguf"
+      - name: "ai/llama3.3"
+        tag: "70b-instruct-v1"
+        type: "model"
+        size_mb: 38500
+        gpu_required: true
+        priority: "low"
+        description: "Llama 3.3 70B instruction model"
+        model_format: "safetensors"
+      - name: "ai/phi4"
+        tag: "14b-v1"
+        type: "model"
+        size_mb: 7800
+        gpu_required: true
+        priority: "low"
+        description: "Phi-4 14B parameter model"
+      - name: "ai/qwen2.5"
+        tag: "32b-instruct-v1"
+        type: "model"
+        size_mb: 18200
+        gpu_required: true
+        priority: "low"
+        description: "Qwen 2.5 32B instruction model"
+      - name: "ai/mxbai-embed-large"
+        tag: "v1"
+        type: "model"
+        size_mb: 600
+        gpu_required: false
+        priority: "low"
+        description: "MxBAI large embedding model"
 
   utilities:
     enabled: true
     description: "General utility images"
+    priority: 5
+    total_size_estimate_mb: 1200
     images:
-      - "curlimages/curl:latest"
-      - "influxdb:latest"
-      - "vault:latest"
-      - "consul:latest"
-      - "elasticsearch:latest"
-      - "maven:latest"
+      - name: "curlimages/curl"
+        tag: "8.5.0"
+        size_mb: 15
+        priority: "medium"
+      - name: "influxdb"
+        tag: "2.7-alpine"
+        size_mb: 250
+        priority: "low"
+      - name: "vault"
+        tag: "1.15-alpine"
+        size_mb: 200
+        priority: "low"
+      - name: "consul"
+        tag: "1.17-alpine"
+        size_mb: 150
+        priority: "low"
+      - name: "elasticsearch"
+        tag: "8.11.3"
+        size_mb: 500
+        priority: "low"
+      - name: "maven"
+        tag: "3.9-eclipse-temurin-17-alpine"
+        size_mb: 350
+        priority: "low"
 
   windows_specific:
     enabled: false
     description: "Windows-specific images (disable for WSL2)"
+    priority: 7
+    total_size_estimate_mb: 20000
     images:
-      - "mcr.microsoft.com/windows/server:ltsc2022"
-      - "mcr.microsoft.com/windows/nanoserver:ltsc2025"
+      - name: "mcr.microsoft.com/windows/server"
+        tag: "ltsc2022"
+        size_mb: 12000
+        priority: "low"
+      - name: "mcr.microsoft.com/windows/nanoserver"
+        tag: "ltsc2025"
+        size_mb: 8000
+        priority: "low"
 
 # Environment-specific overrides
 environments:
   wsl2:
     skip_windows: true
     parallel: 2  # Lower parallel count for WSL2
+    resource_overrides:
+      max_concurrent_downloads: 2
+      skip_large_images: true
+      size_threshold_mb: 5000
   
   native_linux:
     skip_windows: false
@@ -145,3 +408,56 @@ environments:
   ci_cd:
     timeout: 600  # Longer timeout for CI/CD environments
     retries: 3
+    resource_overrides:
+      essential_only: true
+
+# Schema validation and integrity checks
+schema:
+  version: "2.0"
+  validation:
+    strict_mode: true
+    validate_image_existence: true
+    check_registry_availability: true
+    validate_digest_format: true
+
+# Dynamic configuration and environment adaptation
+dynamic_configuration:
+  enabled: true
+  system_detection:
+    - capability: "available_memory"
+      thresholds:
+        - condition: "< 4GB"
+          apply_profile: "low_memory"
+        - condition: "< 8GB"
+          apply_profile: "standard_memory"
+        - condition: ">= 16GB"
+          apply_profile: "high_memory"
+    
+    - capability: "available_disk_space"
+      thresholds:
+        - condition: "< 20GB"
+          apply_profile: "minimal_disk"
+        - condition: "< 50GB"
+          apply_profile: "standard_disk"
+        - condition: ">= 100GB"
+          apply_profile: "large_disk"
+
+# Adaptive profiles based on system capabilities
+adaptive_profiles:
+  low_memory:
+    category_modifications:
+      ai_ml:
+        enabled: false
+        reason: "Insufficient memory for AI/ML models"
+    settings_overrides:
+      parallel: 1
+      timeout: 600
+      
+  minimal_disk:
+    category_modifications:
+      ai_ml:
+        enabled: false
+      devcontainers:
+        enabled: false
+    settings_overrides:
+      skip_optional_images: true

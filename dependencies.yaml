@@ -1,4 +1,320 @@
+# Ubuntu Development Environment Dependencies Configuration
+# Schema version: 1.0
+
+metadata:
+  version: "1.0.0"
+  schema_version: "1.0"
+  last_updated: "2025-06-13"
+  maintainer: "Ubuntu Dev Team"
+  minimum_requirements:
+    disk_space_gb: 5
+    memory_gb: 2
+    network: true
+
+# Installation profiles for different use cases
+profiles:
+  minimal:
+    description: "Minimal development setup with essential tools"
+    components: ["devtools"]
+    estimated_time_minutes: 8
+    disk_space_mb: 150
+    suitable_for: ["ci", "containers", "low-resource"]
+    
+  standard:
+    description: "Standard development environment for most users"
+    components: ["devtools", "terminal-enhancements", "lang-sdks"]
+    estimated_time_minutes: 20
+    disk_space_mb: 500
+    suitable_for: ["desktop", "wsl2", "general-development"]
+    
+  full:
+    description: "Complete development environment with all features"
+    components: ["devtools", "terminal-enhancements", "desktop", "devcontainers", "dotnet-ai", "lang-sdks", "vscommunity"]
+    estimated_time_minutes: 45
+    disk_space_mb: 2000
+    suitable_for: ["desktop", "workstation", "full-stack-development"]
+    
+  wsl:
+    description: "Optimized setup for WSL2 environments"
+    components: ["devtools", "terminal-enhancements", "lang-sdks", "vscommunity"]
+    estimated_time_minutes: 25
+    disk_space_mb: 600
+    suitable_for: ["wsl2"]
+
+# Component definitions with enhanced metadata
 components:
+  devtools:
+    description: "Development Tools"
+    long_description: |
+      Core development tools including Git, modern CLI utilities (bat, ripgrep, fd),
+      shell enhancements, and essential development packages.
+    category: "core"
+    priority: 1
+    criticality: "essential"
+    
+    # Resource requirements
+    resources:
+      estimated_time_minutes: 8
+      disk_space_mb: 150
+      network_required: true
+      
+    # Compatibility matrix
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    # Installation characteristics
+    characteristics:
+      idempotent: true
+      requires_sudo: true
+      requires_restart: false
+      
+    dependencies:
+      required: []
+      optional: ["git-lfs"]
+      conditional:
+        - condition: "environment == 'desktop'"
+          components: ["desktop-integration"]
+    script: "setup-devtools.sh"
+
+  terminal-enhancements:
+    description: "Terminal Enhancements"
+    long_description: |
+      Advanced terminal features including shell configuration, enhanced prompts,
+      terminal multiplexing, and improved command-line experience.
+    category: "development"
+    priority: 2
+    criticality: "recommended"
+    
+    resources:
+      estimated_time_minutes: 5
+      disk_space_mb: 80
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: false
+      requires_restart: false
+      
+    dependencies:
+      required: ["devtools"]
+      optional: ["powerline-fonts"]
+    script: "setup-terminal-enhancements.sh"
+
+  desktop:
+    description: "Desktop Environment"
+    long_description: |
+      Desktop environment improvements including UI enhancements, productivity tools,
+      and desktop application configurations.
+    category: "gui"
+    priority: 3
+    criticality: "optional"
+    
+    resources:
+      estimated_time_minutes: 12
+      disk_space_mb: 500
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["desktop"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: true
+      requires_restart: true
+      
+    dependencies:
+      required: []
+      conflicts: ["headless-mode"]
+      conditions:
+        - "environment == 'desktop'"
+        - "display_available == true"
+    script: "setup-desktop.sh"
+
+  devcontainers:
+    description: "Container Development"
+    long_description: |
+      Container development tools including Docker, Docker Compose, and
+      related utilities for containerized development workflows.
+    category: "development"
+    priority: 3
+    criticality: "optional"
+    
+    resources:
+      estimated_time_minutes: 15
+      disk_space_mb: 800
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: true
+      requires_restart: false
+      
+    dependencies:
+      required: ["devtools"]
+      optional: []
+    script: "setup-devcontainers.sh"
+
+  dotnet-ai:
+    description: ".NET and AI Tools"
+    long_description: |
+      .NET development environment and AI-related tools and libraries.
+    category: "languages"
+    priority: 4
+    criticality: "optional"
+    
+    resources:
+      estimated_time_minutes: 10
+      disk_space_mb: 800
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: true
+      requires_restart: false
+      
+    dependencies:
+      required: []
+      optional: []
+    script: "setup-dotnet-ai.sh"
+
+  lang-sdks:
+    description: "Language SDKs"
+    long_description: |
+      Development environments for multiple programming languages including
+      Node.js, Python, Go, Rust, and others as configured.
+    category: "languages"
+    priority: 2
+    criticality: "recommended"
+    
+    resources:
+      estimated_time_minutes: 15
+      disk_space_mb: 500
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: true
+      requires_restart: false
+      
+    dependencies:
+      required: []
+      optional: []
+    script: "setup-lang-sdks.sh"
+
+  vscommunity:
+    description: "VS Code Extensions"
+    long_description: |
+      Visual Studio Code configuration and recommended extensions for
+      enhanced development experience.
+    category: "editors"
+    priority: 3
+    criticality: "optional"
+    
+    resources:
+      estimated_time_minutes: 5
+      disk_space_mb: 200
+      network_required: true
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: false
+      requires_restart: false
+      
+    dependencies:
+      required: ["devtools"]
+      optional: []
+    script: "setup-vscommunity.sh"
+
+  update-env:
+    description: "Environment Updates"
+    long_description: |
+      Updates environment configurations and system settings for optimal
+      development experience.
+    category: "maintenance"
+    priority: 5
+    criticality: "optional"
+    
+    resources:
+      estimated_time_minutes: 3
+      disk_space_mb: 10
+      network_required: false
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: false
+      requires_restart: false
+      
+    dependencies:
+      required: []
+      optional: []
+    script: "update-environment.sh"
+
+  validate:
+    description: "Validate Installation"
+    long_description: |
+      Validates the installed components and checks for potential issues
+      or configuration problems.
+    category: "maintenance"
+    priority: 6
+    criticality: "recommended"
+    
+    resources:
+      estimated_time_minutes: 2
+      disk_space_mb: 0
+      network_required: false
+      
+    compatibility:
+      ubuntu_versions: ["20.04", "22.04", "24.04"]
+      architectures: ["amd64", "arm64"]
+      environments: ["wsl2", "desktop", "headless"]
+      
+    characteristics:
+      idempotent: true
+      requires_sudo: false
+      requires_restart: false
+      
+    dependencies:
+      required: []
+      optional: []
+    script: "validate-installation.sh"
+
+# For backward compatibility
+# This section maintains the original structure for scripts that may depend on it
+legacy:
   devtools:
     description: "Development Tools"
     requires: []

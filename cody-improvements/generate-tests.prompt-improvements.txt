@@ -1,0 +1,1268 @@
+Based on my analysis of the `.github/prompts/generate-tests.prompt.md` file, here are 5 key areas for improvement:
+
+## **1. Missing Project-Specific Testing Framework Integration**
+
+**Issue**: The prompt provides generic Bats testing patterns but doesn't integrate with the project's specific utility modules, environment detection, or architectural patterns used in the Ubuntu development environment.
+
+**Benefits**: Project-specific testing integration would ensure tests validate actual project functionality, use existing utility functions, and maintain consistency with the codebase architecture.
+
+**Recommendation**:
+```bash
+#!/usr/bin/env bats
+
+# Load project-specific test helpers
+load 'test_helper'
+
+# Source project utilities for testing
+setup() {
+  # Load project utility modules
+  export SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+  export PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+  
+  # Source utility modules with error handling
+  source "$PROJECT_ROOT/util-log.sh" || skip "util-log.sh not available"
+  source "$PROJECT_ROOT/util-env.sh" || skip "util-env.sh not available"
+  source "$PROJECT_ROOT/util-packages.sh" || skip "util-packages.sh not available"
+  
+  # Initialize test logging
+  export TEST_LOG_DIR="/tmp/bats_test_logs_$$"
+  mkdir -p "$TEST_LOG_DIR"
+  init_logging "$TEST_LOG_DIR/test.log"
+  
+  # Set up test environment variables
+  export DEBUG="false"
+  export FORCE_ENVIRONMENT_TYPE=""  # Allow environment override for testing
+}
+
+teardown() {
+  # Cleanup test artifacts
+  [[ -d "$TEST_LOG_DIR" ]] && rm -rf "$TEST_LOG_DIR"
+  
+  # Reset environment variables
+  unset FORCE_ENVIRONMENT_TYPE
+}
+
+# Project-specific test patterns
+@test "environment_detection: should correctly identify WSL2 environment" {
+  # Mock WSL2 environment
+  export FORCE_ENVIRONMENT_TYPE="wsl"
+  
+  run detect_environment
+  [ "$status" -eq 0 ]
+  [[ "$output" == "wsl" ]]
+}
+
+@test "logging_integration: should use project logging functions" {
+  # Test project logging integration
+  run log_info "Test message"
+  [ "$status" -eq 0 ]
+  
+  # Verify log format matches project standards
+  [[ "$output" =~ \[INFO\] ]]
+  [[ "$output" =~ "Test message" ]]
+}
+
+@test "package_management: should use project package utilities" {
+  # Test package management integration
+  run is_package_installed "bash"
+  [ "$status" -eq 0 ]
+  
+  # Test with non-existent package
+  run is_package_installed "non-existent-package-12345"
+  [ "$status" -eq 1 ]
+}
+
+# Environment-specific test patterns
+@test "vscode_installation: should handle environment-specific VS Code installation" {
+  # Test WSL2 behavior
+  export FORCE_ENVIRONMENT_TYPE="wsl"
+  run setup_vscode_for_environment
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Windows VS Code" ]]
+  
+  # Test Desktop behavior
+  export FORCE_ENVIRONMENT_TYPE="desktop"
+  run setup_vscode_for_environment
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "local installation" ]]
+}
+```
+
+## **2. Inadequate Security Testing Framework**
+
+**Issue**: The prompt mentions basic error conditions but lacks comprehensive security testing patterns for shell scripts that handle system configuration, package installation, and privilege escalation.
+
+**Benefits**: Structured security testing would help identify vulnerabilities, validate input sanitization, and ensure secure handling of sensitive operations.
+
+**Recommendation**:
+```bash
+## Security Testing Framework
+
+# Security test helper functions
+load 'security_test_helper'
+
+setup_security_tests() {
+  # Create test environment with restricted permissions
+  export SECURITY_TEST_DIR="/tmp/security_test_$$"
+  mkdir -p "$SECURITY_TEST_DIR"
+  chmod 700 "$SECURITY_TEST_DIR"
+  
+  # Set up test files with various permissions
+  touch "$SECURITY_TEST_DIR/readable_file"
+  chmod 644 "$SECURITY_TEST_DIR/readable_file"
+  
+  touch "$SECURITY_TEST_DIR/restricted_file"
+  chmod 600 "$SECURITY_TEST_DIR/restricted_file"
+  
+  # Create test user input scenarios
+  export MALICIOUS_INPUTS=(
+    "../../../etc/passwd"
+    "\$(rm -rf /tmp/test)"
+    "; cat /etc/shadow"
+    "' OR '1'='1"
+    "\x00\x01\x02"
+  )
+}
+
+teardown_security_tests() {
+  [[ -d "$SECURITY_TEST_DIR" ]] && rm -rf "$SECURITY_TEST_DIR"
+}
+
+@test "input_validation: should reject malicious path inputs" {
+  setup_security_tests
+  
+  for malicious_input in "${MALICIOUS_INPUTS[@]}"; do
+    # Test path validation function
+    run validate_safe_path "$malicious_input"
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "SECURITY" ]] || [[ "$output" =~ "Invalid" ]]
+  done
+  
+  teardown_security_tests
+}
+
+@test "privilege_escalation: should not run with unnecessary privileges" {
+  # Verify script doesn't request root when not needed
+  run check_required_privileges
+  [ "$status" -eq 0 ]
+  
+  # Verify privilege escalation is documented and justified
+  if grep -q "sudo\|su " "$BATS_TEST_FILENAME"; then
+    run validate_privilege_justification
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "justified" ]]
+  fi
+}
+
+@test "file_permissions: should create files with secure permissions" {
+  setup_security_tests
+  
+  # Test file creation with secure permissions
+  run create_secure_temp_file "$SECURITY_TEST_DIR/test_file"
+  [ "$status" -eq 0 ]
+  
+  # Verify file permissions are restrictive
+  local file_perms
+  file_perms=$(stat -c "%a" "$SECURITY_TEST_DIR/test_file")
+  [[ "$file_perms" =~ ^[67][0-4][0-4]$ ]]  # 600, 640, 644, 700, 740, 744
+  
+  teardown_security_tests
+}
+
+@test "command_injection: should prevent command injection attacks" {
+  # Test command injection prevention
+  local test_inputs=(
+    "normal_input"
+    "input; rm -rf /"
+    "input \$(malicious_command)"
+    "input | malicious_command"
+    "input && malicious_command"
+  )
+  
+  for input in "${test_inputs[@]}"; do
+    run process_user_input "$input"
+    
+    if [[ "$input" =~ [;\$\|\&] ]]; then
+      # Should reject malicious input
+      [ "$status" -ne 0 ]
+    else
+      # Should accept normal input
+      [ "$status" -eq 0 ]
+    fi
+  done
+}
+
+@test "credential_handling: should not expose credentials in logs or output" {
+  # Test credential sanitization
+  local test_credential="secret_password_123"
+  
+  run process_with_credential "$test_credential"
+  [ "$status" -eq 0 ]
+  
+  # Verify credential is not in output
+  [[ ! "$output" =~ "$test_credential" ]]
+  
+  # Verify credential is not in logs
+  if [[ -f "$TEST_LOG_DIR/test.log" ]]; then
+    run grep "$test_credential" "$TEST_LOG_DIR/test.log"
+    [ "$status" -ne 0 ]
+  fi
+}
+
+@test "network_security: should validate SSL/TLS for network operations" {
+  # Test HTTPS enforcement
+  run download_file "http://insecure.example.com/file"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "HTTPS required" ]]
+  
+  # Test certificate validation
+  run download_file "https://self-signed.badssl.com/"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "certificate" ]]
+}
+```
+
+## **3. Missing Performance and Resource Testing Patterns**
+
+**Issue**: The prompt doesn't address performance testing, resource usage validation, or scalability testing for shell scripts that may handle large installations or resource-intensive operations.
+
+**Benefits**: Performance testing would help identify bottlenecks, validate resource usage, and ensure scripts perform acceptably under various system conditions.
+
+**Recommendation**:
+```bash
+## Performance and Resource Testing Framework
+
+# Performance test utilities
+setup_performance_tests() {
+  export PERF_TEST_DIR="/tmp/perf_test_$$"
+  mkdir -p "$PERF_TEST_DIR"
+  
+  # Create test data of various sizes
+  dd if=/dev/zero of="$PERF_TEST_DIR/small_file" bs=1K count=10 2>/dev/null
+  dd if=/dev/zero of="$PERF_TEST_DIR/large_file" bs=1M count=100 2>/dev/null
+  
+  # Set performance thresholds
+  export MAX_EXECUTION_TIME=30  # seconds
+  export MAX_MEMORY_USAGE=512   # MB
+  export MAX_DISK_USAGE=1024    # MB
+}
+
+teardown_performance_tests() {
+  [[ -d "$PERF_TEST_DIR" ]] && rm -rf "$PERF_TEST_DIR"
+}
+
+# Time-based performance testing
+@test "execution_time: should complete within acceptable time limits" {
+  setup_performance_tests
+  
+  # Measure execution time
+  local start_time
+  start_time=$(date +%s.%N)
+  
+  run main_installation_function --dry-run
+  [ "$status" -eq 0 ]
+  
+  local end_time
+  end_time=$(date +%s.%N)
+  local duration
+  duration=$(echo "$end_time - $start_time" | bc -l)
+  
+  # Verify execution time is within limits
+  local duration_int
+  duration_int=$(echo "$duration" | cut -d. -f1)
+  [ "$duration_int" -le "$MAX_EXECUTION_TIME" ]
+  
+  teardown_performance_tests
+}
+
+# Memory usage testing
+@test "memory_usage: should not exceed memory limits" {
+  setup_performance_tests
+  
+  # Monitor memory usage during execution
+  local initial_memory
+  initial_memory=$(free -m | awk 'NR==2{print $3}')
+  
+  # Run function in background and monitor
+  (
+    main_installation_function --dry-run
+  ) &
+  local pid=$!
+  
+  local peak_memory=$initial_memory
+  while kill -0 $pid 2>/dev/null; do
+    local current_memory
+    current_memory=$(free -m | awk 'NR==2{print $3}')
+    if [ "$current_memory" -gt "$peak_memory" ]; then
+      peak_memory=$current_memory
+    fi
+    sleep 0.1
+  done
+  
+  wait $pid
+  local exit_status=$?
+  
+  # Verify memory usage
+  local memory_used=$((peak_memory - initial_memory))
+  [ "$memory_used" -le "$MAX_MEMORY_USAGE" ]
+  [ "$exit_status" -eq 0 ]
+  
+  teardown_performance_tests
+}
+
+# I/O performance testing
+@test "io_performance: should handle file operations efficiently" {
+  setup_performance_tests
+  
+  # Test file processing performance
+  local start_time
+  start_time=$(date +%s.%N)
+  
+  run process_large_file "$PERF_TEST_DIR/large_file"
+  [ "$status" -eq 0 ]
+  
+  local end_time
+  end_time=$(date +%s.%N)
+  local duration
+  duration=$(echo "$end_time - $start_time" | bc -l)
+  
+  # Verify I/O performance (should process 100MB in reasonable time)
+  local duration_int
+  duration_int=$(echo "$duration" | cut -d. -f1)
+  [ "$duration_int" -le 10 ]  # 10 seconds max for 100MB
+  
+  teardown_performance_tests
+}
+
+# Concurrent execution testing
+@test "concurrency: should handle concurrent operations safely" {
+  setup_performance_tests
+  
+  # Start multiple instances
+  local pids=()
+  for i in {1..3}; do
+    (
+      safe_concurrent_function "$i"
+    ) &
+    pids+=($!)
+  done
+  
+  # Wait for all to complete
+  local failed=0
+  for pid in "${pids[@]}"; do
+    if ! wait "$pid"; then
+      ((failed++))
+    fi
+  done
+  
+  # Verify all succeeded
+  [ "$failed" -eq 0 ]
+  
+  teardown_performance_tests
+}
+
+# Resource cleanup testing
+@test "resource_cleanup: should properly clean up temporary resources" {
+  setup_performance_tests
+  
+  local temp_files_before
+  temp_files_before=$(find /tmp -name "*test*" | wc -l)
+  
+  # Run function that creates temporary resources
+  run function_with_temp_resources
+  [ "$status" -eq 0 ]
+  
+  local temp_files_after
+  temp_files_after=$(find /tmp -name "*test*" | wc -l)
+  
+  # Verify no additional temp files remain
+  [ "$temp_files_after" -le "$temp_files_before" ]
+  
+  teardown_performance_tests
+}
+
+# Network performance testing
+@test "network_performance: should handle network operations with timeouts" {
+  # Test network timeout handling
+  run download_with_timeout "http://httpbin.org/delay/5" 3
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "timeout" ]]
+  
+  # Test successful download within timeout
+  run download_with_timeout "http://httpbin.org/delay/1" 5
+  [ "$status" -eq 0 ]
+}
+```
+
+## **4. Insufficient Integration and End-to-End Testing Patterns**
+
+**Issue**: The prompt focuses on unit testing individual functions but lacks comprehensive integration testing patterns for multi-component installations and end-to-end workflow validation.
+
+**Benefits**: Integration testing would validate component interactions, ensure proper installation sequences, and catch issues that only appear when multiple components work together.
+
+**Recommendation**:
+```bash
+## Integration and End-to-End Testing Framework
+
+# Integration test setup
+setup_integration_tests() {
+  export INTEGRATION_TEST_ROOT="/tmp/integration_test_$$"
+  mkdir -p "$INTEGRATION_TEST_ROOT"
+  
+  # Create mock system environment
+  export MOCK_HOME="$INTEGRATION_TEST_ROOT/home"
+  export MOCK_ETC="$INTEGRATION_TEST_ROOT/etc"
+  export MOCK_VAR="$INTEGRATION_TEST_ROOT/var"
+  
+  mkdir -p "$MOCK_HOME" "$MOCK_ETC" "$MOCK_VAR/log"
+  
+  # Set up test configuration
+  export TEST_CONFIG_FILE="$INTEGRATION_TEST_ROOT/test_config.conf"
+  cat > "$TEST_CONFIG_FILE" << EOF
+INSTALL_NODE=true
+INSTALL_PYTHON=true
+INSTALL_VSCODE=true
+INSTALL_DOCKER=false
+EOF
+}
+
+teardown_integration_tests() {
+  [[ -d "$INTEGRATION_TEST_ROOT" ]] && rm -rf "$INTEGRATION_TEST_ROOT"
+}
+
+# Multi-component installation testing
+@test "integration: should install Node.js and Python together successfully" {
+  setup_integration_tests
+  
+  # Test component dependency resolution
+```
+```bash
+  run install_development_stack --components "nodejs,python" --config "$TEST_CONFIG_FILE"
+  [ "$status" -eq 0 ]
+  
+  # Verify both components are installed and functional
+  run validate_nodejs_installation
+  [ "$status" -eq 0 ]
+  
+  run validate_python_installation
+  [ "$status" -eq 0 ]
+  
+  # Test component interaction (e.g., Python can use Node.js tools)
+  run test_nodejs_python_integration
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# End-to-end workflow testing
+@test "e2e: complete development environment setup workflow" {
+  setup_integration_tests
+  
+  # Test full installation workflow
+  run ./install-new.sh --all --dry-run --config "$TEST_CONFIG_FILE"
+  [ "$status" -eq 0 ]
+  
+  # Verify installation plan is generated
+  [[ "$output" =~ "Installation Plan:" ]]
+  [[ "$output" =~ "Node.js" ]]
+  [[ "$output" =~ "Python" ]]
+  [[ "$output" =~ "VS Code" ]]
+  
+  # Test validation workflow
+  run ./validate-installation.sh --config "$TEST_CONFIG_FILE"
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# Environment-specific integration testing
+@test "integration: should handle WSL2 to Windows integration" {
+  setup_integration_tests
+  
+  # Mock WSL2 environment
+  export FORCE_ENVIRONMENT_TYPE="wsl"
+  
+  # Test Windows path integration
+  run setup_windows_integration
+  [ "$status" -eq 0 ]
+  
+  # Verify Windows VS Code integration
+  run test_windows_vscode_integration
+  [ "$status" -eq 0 ]
+  
+  # Test Git credential integration
+  run test_git_windows_integration
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# Service integration testing
+@test "integration: should configure services to work together" {
+  setup_integration_tests
+  
+  # Test Docker and development tools integration
+  run setup_container_development_stack
+  [ "$status" -eq 0 ]
+  
+  # Verify services can communicate
+  run test_service_communication
+  [ "$status" -eq 0 ]
+  
+  # Test service dependencies
+  run validate_service_dependencies
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# Configuration integration testing
+@test "integration: should maintain consistent configuration across components" {
+  setup_integration_tests
+  
+  # Install multiple components
+  run install_multiple_components "git,nodejs,python,vscode"
+  [ "$status" -eq 0 ]
+  
+  # Verify configuration consistency
+  run validate_git_configuration
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "VS Code Insiders" ]]  # Should use consistent editor
+  
+  run validate_nodejs_configuration
+  [ "$status" -eq 0 ]
+  
+  run validate_python_configuration
+  [ "$status" -eq 0 ]
+  
+  # Test cross-component configuration
+  run test_cross_component_config_consistency
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# Rollback and recovery integration testing
+@test "integration: should handle partial installation failures gracefully" {
+  setup_integration_tests
+  
+  # Simulate partial installation failure
+  export SIMULATE_FAILURE_AT="python_installation"
+  
+  run install_development_stack --components "nodejs,python,vscode"
+  [ "$status" -ne 0 ]
+  
+  # Verify rollback was executed
+  run check_rollback_completion
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "rollback completed" ]]
+  
+  # Verify system is in clean state
+  run validate_clean_system_state
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+
+# Update and maintenance integration testing
+@test "integration: should handle updates without breaking existing setup" {
+  setup_integration_tests
+  
+  # Install initial version
+  run install_development_stack --version "1.0"
+  [ "$status" -eq 0 ]
+  
+  # Simulate update
+  run update_development_stack --version "1.1"
+  [ "$status" -eq 0 ]
+  
+  # Verify all components still work
+  run validate_complete_installation
+  [ "$status" -eq 0 ]
+  
+  # Verify new features are available
+  run test_new_version_features
+  [ "$status" -eq 0 ]
+  
+  teardown_integration_tests
+}
+```
+
+## **5. Missing Comprehensive Test Data Management and Fixture Framework**
+
+**Issue**: The prompt shows basic test setup but lacks comprehensive test data management, fixture creation, and test environment isolation patterns for complex shell script testing.
+
+**Benefits**: Robust test data management would ensure consistent test conditions, enable complex scenario testing, and provide reliable test isolation for concurrent test execution.
+
+**Recommendation**:
+```bash
+## Comprehensive Test Data Management Framework
+
+# Test fixture management
+create_test_fixtures() {
+  local fixture_type="$1"
+  local fixture_dir="$BATS_TEST_TMPDIR/fixtures/$fixture_type"
+  mkdir -p "$fixture_dir"
+  
+  case "$fixture_type" in
+    "minimal_system")
+      # Create minimal system environment
+      create_minimal_system_fixture "$fixture_dir"
+      ;;
+    "full_development")
+      # Create full development environment
+      create_full_development_fixture "$fixture_dir"
+      ;;
+    "corrupted_installation")
+      # Create corrupted installation scenario
+      create_corrupted_installation_fixture "$fixture_dir"
+      ;;
+    "network_isolated")
+      # Create network-isolated environment
+      create_network_isolated_fixture "$fixture_dir"
+      ;;
+  esac
+  
+  echo "$fixture_dir"
+}
+
+create_minimal_system_fixture() {
+  local fixture_dir="$1"
+  
+  # Create minimal file system structure
+  mkdir -p "$fixture_dir"/{bin,etc,home,tmp,var/log}
+  
+  # Create minimal package database
+  cat > "$fixture_dir/etc/package_list.txt" << EOF
+bash
+coreutils
+grep
+sed
+awk
+EOF
+  
+  # Create minimal user environment
+  mkdir -p "$fixture_dir/home/testuser"
+  cat > "$fixture_dir/home/testuser/.bashrc" << EOF
+# Minimal bashrc for testing
+export PATH="/usr/local/bin:/usr/bin:/bin"
+export HOME="$fixture_dir/home/testuser"
+EOF
+  
+  # Create system information files
+  echo "Ubuntu 22.04.3 LTS" > "$fixture_dir/etc/os-release"
+  echo "testhost" > "$fixture_dir/etc/hostname"
+}
+
+create_full_development_fixture() {
+  local fixture_dir="$1"
+  
+  # Start with minimal system
+  create_minimal_system_fixture "$fixture_dir"
+  
+  # Add development tools
+  cat >> "$fixture_dir/etc/package_list.txt" << EOF
+git
+nodejs
+npm
+python3
+python3-pip
+code
+docker.io
+EOF
+  
+  # Create development configurations
+  mkdir -p "$fixture_dir/home/testuser/.config"
+  
+  # Git configuration
+  cat > "$fixture_dir/home/testuser/.gitconfig" << EOF
+[user]
+    name = Test User
+    email = test@example.com
+[core]
+    editor = code-insiders --wait
+EOF
+  
+  # VS Code configuration
+  mkdir -p "$fixture_dir/home/testuser/.config/Code/User"
+  cat > "$fixture_dir/home/testuser/.config/Code/User/settings.json" << EOF
+{
+    "github.copilot.enable": {
+        "*": true
+    }
+}
+EOF
+  
+  # Node.js environment
+  mkdir -p "$fixture_dir/home/testuser/.nvm"
+  echo "v18.17.0" > "$fixture_dir/home/testuser/.nvm/alias/default"
+  
+  # Python environment
+  mkdir -p "$fixture_dir/home/testuser/.pyenv/versions"
+  echo "3.11.5" > "$fixture_dir/home/testuser/.pyenv/version"
+}
+
+create_corrupted_installation_fixture() {
+  local fixture_dir="$1"
+  
+  # Start with full development environment
+  create_full_development_fixture "$fixture_dir"
+  
+  # Introduce corruption scenarios
+  
+  # Corrupted package database
+  echo "CORRUPTED_DATA" >> "$fixture_dir/etc/package_list.txt"
+  
+  # Missing critical files
+  rm -f "$fixture_dir/home/testuser/.gitconfig"
+  
+  # Incorrect permissions
+  chmod 000 "$fixture_dir/home/testuser/.config" 2>/dev/null || true
+  
+  # Broken symlinks
+  ln -sf "/nonexistent/path" "$fixture_dir/home/testuser/.broken_link"
+  
+  # Incomplete installations
+  mkdir -p "$fixture_dir/home/testuser/.nvm/versions/node"
+  # Empty node installation directory
+}
+
+create_network_isolated_fixture() {
+  local fixture_dir="$1"
+  
+  # Create system without network access
+  create_minimal_system_fixture "$fixture_dir"
+  
+  # Create offline package cache
+  mkdir -p "$fixture_dir/var/cache/apt/archives"
+  
+  # Create local repository mirror structure
+  mkdir -p "$fixture_dir/var/local/repository"
+  
+  # Create network configuration that blocks external access
+  cat > "$fixture_dir/etc/network_policy" << EOF
+# Network isolated environment
+BLOCK_EXTERNAL=true
+ALLOW_LOCALHOST=true
+EOF
+}
+
+# Test data generators
+generate_test_data() {
+  local data_type="$1"
+  local size="${2:-small}"
+  local output_dir="$BATS_TEST_TMPDIR/test_data"
+  mkdir -p "$output_dir"
+  
+  case "$data_type" in
+    "package_lists")
+      generate_package_list_data "$output_dir" "$size"
+      ;;
+    "configuration_files")
+      generate_configuration_data "$output_dir" "$size"
+      ;;
+    "log_files")
+      generate_log_file_data "$output_dir" "$size"
+      ;;
+    "user_inputs")
+      generate_user_input_data "$output_dir" "$size"
+      ;;
+  esac
+  
+  echo "$output_dir"
+}
+
+generate_package_list_data() {
+  local output_dir="$1"
+  local size="$2"
+  
+  case "$size" in
+    "small")
+      cat > "$output_dir/packages_small.txt" << EOF
+bash
+git
+curl
+wget
+vim
+EOF
+      ;;
+    "large")
+      # Generate large package list
+      {
+        echo "# Large package list for testing"
+        for i in {1..1000}; do
+          echo "package-$i"
+        done
+      } > "$output_dir/packages_large.txt"
+      ;;
+    "malformed")
+      cat > "$output_dir/packages_malformed.txt" << EOF
+bash
+git
+../../../etc/passwd
+\$(malicious_command)
+package with spaces
+EOF
+      ;;
+  esac
+}
+
+generate_configuration_data() {
+  local output_dir="$1"
+  local size="$2"
+  
+  # Generate various configuration file scenarios
+  mkdir -p "$output_dir/configs"
+  
+  # Valid configuration
+  cat > "$output_dir/configs/valid.conf" << EOF
+INSTALL_NODE=true
+INSTALL_PYTHON=true
+DEBUG=false
+EOF
+  
+  # Invalid configuration
+  cat > "$output_dir/configs/invalid.conf" << EOF
+INSTALL_NODE=maybe
+INVALID_OPTION=true
+MALFORMED LINE
+EOF
+  
+  # Large configuration
+  if [[ "$size" == "large" ]]; then
+    {
+      echo "# Large configuration file"
+      for i in {1..500}; do
+        echo "OPTION_$i=value_$i"
+      done
+    } > "$output_dir/configs/large.conf"
+  fi
+}
+
+# Test environment isolation
+setup_isolated_test_environment() {
+  local test_name="$1"
+  local isolation_level="${2:-standard}"
+  
+  export TEST_ISOLATION_DIR="$BATS_TEST_TMPDIR/isolated_$test_name"
+  mkdir -p "$TEST_ISOLATION_DIR"
+  
+  case "$isolation_level" in
+    "minimal")
+      # Basic isolation - separate temp directory
+      export TMPDIR="$TEST_ISOLATION_DIR/tmp"
+      mkdir -p "$TMPDIR"
+      ;;
+    "standard")
+      # Standard isolation - separate home and config
+      export HOME="$TEST_ISOLATION_DIR/home"
+      export XDG_CONFIG_HOME="$TEST_ISOLATION_DIR/config"
+      export XDG_DATA_HOME="$TEST_ISOLATION_DIR/data"
+      mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+      ;;
+    "complete")
+      # Complete isolation - separate everything
+      setup_standard_isolation
+      export PATH="$TEST_ISOLATION_DIR/bin:$PATH"
+      export LD_LIBRARY_PATH="$TEST_ISOLATION_DIR/lib:${LD_LIBRARY_PATH:-}"
+      mkdir -p "$TEST_ISOLATION_DIR/bin" "$TEST_ISOLATION_DIR/lib"
+      
+      # Create mock system commands
+      create_mock_system_commands "$TEST_ISOLATION_DIR/bin"
+      ;;
+  esac
+  
+  echo "$TEST_ISOLATION_DIR"
+}
+
+create_mock_system_commands() {
+  local bin_dir="$1"
+  
+  # Create mock commands for testing
+  cat > "$bin_dir/apt-get" << 'EOF'
+#!/bin/bash
+# Mock apt-get for testing
+echo "Mock apt-get called with: $*"
+case "$1" in
+  "update") exit 0 ;;
+  "install") echo "Mock installing: ${*:2}"; exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$bin_dir/apt-get"
+  
+  cat > "$bin_dir/systemctl" << 'EOF'
+#!/bin/bash
+# Mock systemctl for testing
+echo "Mock systemctl called with: $*"
+case "$1" in
+  "is-active") exit 0 ;;
+  "start"|"stop"|"restart") echo "Mock $1: $2"; exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$bin_dir/systemctl"
+  
+  # Add more mock commands as needed
+  for cmd in wget curl git docker; do
+    cat > "$bin_dir/$cmd" << EOF
+#!/bin/bash
+echo "Mock $cmd called with: \$*"
+exit 0
+EOF
+    chmod +x "$bin_dir/$cmd"
+  done
+}
+
+# Test result validation and reporting
+validate_test_results() {
+  local test_results_dir="$1"
+  local validation_errors=0
+  
+  # Validate test coverage
+  if [[ -f "$test_results_dir/coverage.txt" ]]; then
+    local coverage_percent
+    coverage_percent=$(grep "Total coverage:" "$test_results_dir/coverage.txt" | awk '{print $3}' | sed 's/%//')
+    
+    if [[ "$coverage_percent" -lt 80 ]]; then
+      echo "WARNING: Test coverage below 80%: ${coverage_percent}%"
+      ((validation_errors++))
+    fi
+  fi
+  
+  #
+```
+```bash
+  # Validate test execution time
+  if [[ -f "$test_results_dir/timing.txt" ]]; then
+    local total_time
+    total_time=$(grep "Total execution time:" "$test_results_dir/timing.txt" | awk '{print $4}' | sed 's/s//')
+    
+    if (( $(echo "$total_time > 300" | bc -l) )); then
+      echo "WARNING: Test suite execution time exceeds 5 minutes: ${total_time}s"
+      ((validation_errors++))
+    fi
+  fi
+  
+  # Validate test stability (flaky test detection)
+  if [[ -f "$test_results_dir/flaky_tests.txt" ]]; then
+    local flaky_count
+    flaky_count=$(wc -l < "$test_results_dir/flaky_tests.txt")
+    
+    if [[ "$flaky_count" -gt 0 ]]; then
+      echo "WARNING: $flaky_count flaky tests detected"
+      ((validation_errors++))
+    fi
+  fi
+  
+  return $validation_errors
+}
+
+# Advanced test patterns for complex scenarios
+@test "data_driven: should handle various input combinations" {
+  local test_data_dir
+  test_data_dir=$(generate_test_data "user_inputs" "comprehensive")
+  
+  # Test with different input combinations
+  while IFS=',' read -r input1 input2 expected_result; do
+    [[ "$input1" =~ ^#.*$ ]] && continue  # Skip comments
+    
+    run process_user_inputs "$input1" "$input2"
+    
+    case "$expected_result" in
+      "success")
+        [ "$status" -eq 0 ]
+        ;;
+      "failure")
+        [ "$status" -ne 0 ]
+        ;;
+      "warning")
+        [ "$status" -eq 0 ]
+        [[ "$output" =~ "WARNING" ]]
+        ;;
+    esac
+  done < "$test_data_dir/input_combinations.csv"
+}
+
+@test "state_transition: should handle complex state transitions correctly" {
+  local isolation_dir
+  isolation_dir=$(setup_isolated_test_environment "state_transition" "complete")
+  
+  # Test state transition sequence
+  local states=("initial" "installing" "configuring" "validating" "complete")
+  local current_state="initial"
+  
+  for target_state in "${states[@]:1}"; do
+    run transition_to_state "$current_state" "$target_state"
+    [ "$status" -eq 0 ]
+    
+    # Verify state transition was successful
+    run get_current_state
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$target_state" ]]
+    
+    current_state="$target_state"
+  done
+  
+  # Test invalid state transitions
+  run transition_to_state "complete" "installing"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "Invalid state transition" ]]
+}
+
+@test "resource_exhaustion: should handle resource exhaustion gracefully" {
+  local isolation_dir
+  isolation_dir=$(setup_isolated_test_environment "resource_test" "complete")
+  
+  # Simulate low disk space
+  export SIMULATE_LOW_DISK_SPACE=true
+  run install_large_component
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "insufficient disk space" ]]
+  
+  # Simulate low memory
+  export SIMULATE_LOW_MEMORY=true
+  run memory_intensive_operation
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "insufficient memory" ]]
+  
+  # Simulate network timeout
+  export SIMULATE_NETWORK_TIMEOUT=true
+  run network_dependent_operation
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "network timeout" ]]
+}
+
+@test "concurrent_access: should handle concurrent script execution" {
+  local isolation_dir
+  isolation_dir=$(setup_isolated_test_environment "concurrent_test" "complete")
+  
+  # Create lock file mechanism test
+  local pids=()
+  local results_dir="$isolation_dir/concurrent_results"
+  mkdir -p "$results_dir"
+  
+  # Start multiple instances concurrently
+  for i in {1..5}; do
+    (
+      run_with_lock "test_operation_$i" > "$results_dir/result_$i.txt" 2>&1
+      echo $? > "$results_dir/exit_code_$i.txt"
+    ) &
+    pids+=($!)
+  done
+  
+  # Wait for all to complete
+  for pid in "${pids[@]}"; do
+    wait "$pid"
+  done
+  
+  # Verify only one succeeded (lock mechanism working)
+  local success_count=0
+  for i in {1..5}; do
+    local exit_code
+    exit_code=$(cat "$results_dir/exit_code_$i.txt")
+    if [[ "$exit_code" -eq 0 ]]; then
+      ((success_count++))
+    fi
+  done
+  
+  [ "$success_count" -eq 1 ]
+}
+
+# Test reporting and metrics collection
+generate_test_report() {
+  local test_results_dir="$BATS_TEST_TMPDIR/test_reports"
+  mkdir -p "$test_results_dir"
+  
+  # Generate comprehensive test report
+  cat > "$test_results_dir/test_summary.html" << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shell Script Test Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .success { color: green; }
+        .failure { color: red; }
+        .warning { color: orange; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>Shell Script Test Report</h1>
+    <h2>Test Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Tests</td><td id="total-tests">-</td></tr>
+        <tr><td>Passed</td><td id="passed-tests" class="success">-</td></tr>
+        <tr><td>Failed</td><td id="failed-tests" class="failure">-</td></tr>
+        <tr><td>Execution Time</td><td id="execution-time">-</td></tr>
+        <tr><td>Coverage</td><td id="coverage">-</td></tr>
+    </table>
+    
+    <h2>Test Categories</h2>
+    <ul>
+        <li><strong>Unit Tests:</strong> Individual function validation</li>
+        <li><strong>Integration Tests:</strong> Component interaction validation</li>
+        <li><strong>Security Tests:</strong> Security vulnerability testing</li>
+        <li><strong>Performance Tests:</strong> Resource usage and timing validation</li>
+        <li><strong>End-to-End Tests:</strong> Complete workflow validation</li>
+    </ul>
+    
+    <h2>Environment Coverage</h2>
+    <ul>
+        <li>WSL2 Environment: <span id="wsl2-coverage">-</span></li>
+        <li>Desktop Environment: <span id="desktop-coverage">-</span></li>
+        <li>Headless Environment: <span id="headless-coverage">-</span></li>
+    </ul>
+    
+    <script>
+        // Populate report with actual test data
+        // This would be filled by the test runner
+    </script>
+</body>
+</html>
+EOF
+
+  # Generate machine-readable test metrics
+  cat > "$test_results_dir/test_metrics.json" << EOF
+{
+  "test_execution": {
+    "timestamp": "$(date -Iseconds)",
+    "total_tests": 0,
+    "passed_tests": 0,
+    "failed_tests": 0,
+    "execution_time_seconds": 0,
+    "coverage_percentage": 0
+  },
+  "test_categories": {
+    "unit_tests": {"passed": 0, "failed": 0},
+    "integration_tests": {"passed": 0, "failed": 0},
+    "security_tests": {"passed": 0, "failed": 0},
+    "performance_tests": {"passed": 0, "failed": 0},
+    "e2e_tests": {"passed": 0, "failed": 0}
+  },
+  "environment_coverage": {
+    "wsl2": {"tested": false, "passed": 0, "failed": 0},
+    "desktop": {"tested": false, "passed": 0, "failed": 0},
+    "headless": {"tested": false, "passed": 0, "failed": 0}
+  },
+  "performance_metrics": {
+    "average_test_time": 0,
+    "slowest_test": {"name": "", "time": 0},
+    "memory_usage_peak": 0,
+    "disk_usage_peak": 0
+  },
+  "quality_metrics": {
+    "flaky_tests": [],
+    "security_issues": [],
+    "performance_issues": []
+  }
+}
+EOF
+
+  echo "$test_results_dir"
+}
+
+# Test maintenance and cleanup utilities
+cleanup_test_artifacts() {
+  local cleanup_level="${1:-standard}"
+  
+  case "$cleanup_level" in
+    "minimal")
+      # Clean only temporary test files
+      find "$BATS_TEST_TMPDIR" -name "*.tmp" -delete 2>/dev/null || true
+      ;;
+    "standard")
+      # Clean test artifacts but preserve logs
+      find "$BATS_TEST_TMPDIR" -type f -name "test_*" -not -name "*.log" -delete 2>/dev/null || true
+      ;;
+    "complete")
+      # Clean everything including logs
+      rm -rf "$BATS_TEST_TMPDIR"/* 2>/dev/null || true
+      ;;
+  esac
+}
+
+# Test helper for debugging failed tests
+debug_failed_test() {
+  local test_name="$1"
+  local debug_dir="$BATS_TEST_TMPDIR/debug_$test_name"
+  mkdir -p "$debug_dir"
+  
+  # Capture system state at time of failure
+  {
+    echo "=== Debug Information for Failed Test: $test_name ==="
+    echo "Timestamp: $(date)"
+    echo "Environment: $(detect_environment)"
+    echo "Working Directory: $(pwd)"
+    echo "User: $(whoami)"
+    echo "Shell: $SHELL"
+    echo ""
+    
+    echo "=== Environment Variables ==="
+    env | sort
+    echo ""
+    
+    echo "=== Process List ==="
+    ps aux | head -20
+    echo ""
+    
+    echo "=== Disk Usage ==="
+    df -h
+    echo ""
+    
+    echo "=== Memory Usage ==="
+    free -h
+    echo ""
+    
+    echo "=== Recent Log Entries ==="
+    if [[ -f "/var/log/ubuntu-dev-tools.log" ]]; then
+      tail -50 "/var/log/ubuntu-dev-tools.log"
+    fi
+    
+  } > "$debug_dir/debug_info.txt"
+  
+  echo "Debug information saved to: $debug_dir/debug_info.txt"
+}
+```
+
+## **Overall Assessment**
+
+The prompt demonstrates **solid foundational testing knowledge** with good coverage of basic Bats testing patterns and test organization. However, there are **substantial opportunities for enhancement** that would transform it into a comprehensive, enterprise-grade testing framework:
+
+**Strengths:**
+- Good basic structure with proper Bats syntax and organization
+- Covers essential testing categories (unit, integration, mocking)
+- Includes practical examples of test setup and teardown
+- Addresses environment-specific testing needs
+- Shows understanding of test isolation principles
+
+**Areas for Significant Enhancement:**
+- **Project Integration**: Generic Bats patterns that don't leverage project-specific utilities and architecture
+- **Security Testing**: Basic error condition testing without comprehensive security vulnerability validation
+- **Performance Testing**: Missing performance benchmarking, resource usage validation, and scalability testing
+- **Test Data Management**: Lacks sophisticated test fixture creation and data-driven testing patterns
+- **Integration Testing**: Limited end-to-end workflow testing and multi-component interaction validation
+
+**Impact of Improvements:**
+The suggested enhancements would elevate this from a useful testing reference to a comprehensive testing framework that includes:
+
+1. **Project-Specific Integration**: Deep integration with existing utility modules and environment detection
+2. **Security Framework**: Comprehensive security testing with vulnerability detection and input validation
+3. **Performance Validation**: Resource usage monitoring, timing validation, and scalability testing
+4. **Advanced Test Management**: Sophisticated fixture creation, data-driven testing, and test isolation
+5. **Enterprise Reporting**: Comprehensive test reporting, metrics collection, and CI/CD integration
+
+**Key Benefits of Enhanced Framework:**
+- **Reliability**: Comprehensive testing ensures script reliability across all environments
+- **Security**: Systematic security testing prevents vulnerabilities in production
+- **Performance**: Performance testing ensures scripts meet resource and timing requirements
+- **Maintainability**: Advanced test patterns facilitate long-term maintenance and refactoring
+- **Quality Assurance**: Comprehensive reporting and metrics enable continuous quality improvement
+
+The prompt shows good testing fundamentals and practical understanding of shell script testing challenges. The suggested improvements would transform it into a testing framework specifically designed for the Ubuntu development environment project, ensuring comprehensive validation of the complex, multi-environment installation and configuration scripts.
+
+This enhanced framework would be particularly valuable for validating the intricate interactions between WSL2, desktop, container, and development tool configurations that characterize this project's scope and complexity.
