@@ -104,9 +104,19 @@ parse_arguments() {
         esac
     done
 
-    # Set global variables for check execution
-    SKIP_CHECKS=("${skip_checks[@]}")
-    ONLY_CHECKS=("${only_checks[@]}")
+    # Set global variables for check execution (safe for empty arrays)
+    if [[ ${#skip_checks[@]} -gt 0 ]]; then
+        SKIP_CHECKS=("${skip_checks[@]}")
+    else
+        SKIP_CHECKS=()
+    fi
+
+    if [[ ${#only_checks[@]} -gt 0 ]]; then
+        ONLY_CHECKS=("${only_checks[@]}")
+    else
+        ONLY_CHECKS=()
+    fi
+
     SHOW_REQUIREMENTS="$show_requirements"
     FORCE_CONTINUE="$force_continue"
 }
