@@ -16,6 +16,7 @@ BACKUP_DIR="${SCRIPT_DIR}/backup_$(date +%Y%m%d_%H%M%S)"
 readonly BACKUP_DIR
 
 # Source utilities with error checking
+# shellcheck source=./util-log.sh
 source "${SCRIPT_DIR}/util-log.sh" || {
     echo "FATAL: Failed to source util-log.sh" >&2
     exit 1
@@ -79,13 +80,13 @@ add_readonly_declarations() {
     fi
 
     # Make SCRIPT_DIR readonly
-    sed -i 's/^SCRIPT_DIR="\$(cd.*$/readonly &/' "${script_file}" 2>/dev/null || true
+    sed -i "s/^SCRIPT_DIR=\"\$(cd.*$/readonly &/" "${script_file}" 2>/dev/null || true
 
     # Make VERSION readonly if it exists
-    sed -i 's/^VERSION=/readonly VERSION=/' "${script_file}" 2>/dev/null || true
+    sed -i "s/^VERSION=/readonly VERSION=/" "${script_file}" 2>/dev/null || true
 
     # Make other common constants readonly
-    sed -i 's/^ENV_TYPE=\$(detect_environment)$/readonly ENV_TYPE="\$(detect_environment)"/' "${script_file}" 2>/dev/null || true
+    sed -i "s/^ENV_TYPE=\$(detect_environment)$/readonly ENV_TYPE=\"\$(detect_environment)\"/" "${script_file}" 2>/dev/null || true
 }
 
 # Add VERSION variable and timestamp to scripts
@@ -120,7 +121,7 @@ improve_source_statements() {
     fi
 
     # Improve source statements with error checking
-    sed -i 's|^source "\$SCRIPT_DIR/\(util-[^"]*\)"$|source "\${SCRIPT_DIR}/\1" \|\| { echo "FATAL: Failed to source \1" >\&2; exit 1; }|' "${script_file}"
+    sed -i "s|^source \"\$SCRIPT_DIR/\(util-[^\"]*\)\"\$|source \"\${SCRIPT_DIR}/\1\" \|\| { echo \"FATAL: Failed to source \1\" >\&2; exit 1; }|" "${script_file}"
 }
 
 # Add dry-run support to destructive operations
@@ -136,7 +137,7 @@ add_dry_run_support() {
 
     # Add DRY_RUN variable after version declarations
     if ! grep -q "DRY_RUN" "${script_file}"; then
-        sed -i '/^readonly VERSION=/a\\n# Dry-run mode support\nreadonly DRY_RUN="${DRY_RUN:-false}"\n' "${script_file}"
+        sed -i "/^readonly VERSION=/a\\\\n# Dry-run mode support\\nreadonly DRY_RUN=\"\${DRY_RUN:-false}\"\\n" "${script_file}"
     fi
 
     # Add dry-run checks to destructive operations (simplified - would need manual review)
@@ -157,7 +158,7 @@ add_macos_detection() {
     # Add macOS detection after environment detection
     if grep -q "detect_environment" "${script_file}" && ! grep -q "uname -s" "${script_file}"; then
         # Add OS detection variable
-        sed -i '/ENV_TYPE.*detect_environment/a\\n# OS detection for cross-platform support\nreadonly OS_TYPE="$(uname -s)"\n' "${script_file}"
+        sed -i "/ENV_TYPE.*detect_environment/a\\\\n# OS detection for cross-platform support\\nreadonly OS_TYPE=\"\$(uname -s)\"\\n" "${script_file}"
     fi
 }
 
@@ -184,7 +185,7 @@ improve_temp_file_usage() {
     fi
 
     # Replace /tmp/filename with mktemp (simplified pattern)
-    sed -i 's|/tmp/[a-zA-Z0-9_-]*|$(mktemp)|g' "${script_file}" 2>/dev/null || true
+    sed -i "s|/tmp/[a-zA-Z0-9_-]*|\$(mktemp)|g" "${script_file}" 2>/dev/null || true
 }
 
 # Main improvement function for a single script
