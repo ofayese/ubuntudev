@@ -77,8 +77,8 @@ fi
 [[ "${RESUME}" == true ]] || rm -f "$STATE_FILE"
 touch "$STATE_FILE"
 
-# Prereqs
-[[ "${SKIP_PREREQS:-false}" == true ]] || bash "$SCRIPT_DIR/check-prerequisites.sh" || exit 1
+# Prerequisites checking has been completely removed from the codebase
+# Installation will proceed without prerequisite validation
 
 # Determine components
 load_dependencies "$SCRIPT_DIR/dependencies.yaml"

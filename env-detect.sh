@@ -76,8 +76,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Source the environment utility with error handling
-readonly SCRIPT_DIR
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 UTIL_ENV_PATH="$SCRIPT_DIR/util-env.sh"
 
 # Validate utility file exists and is readable
