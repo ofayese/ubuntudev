@@ -8,7 +8,7 @@ if [[ "${UTIL_LOG_LOADED:-}" == "true" ]]; then
 fi
 readonly UTIL_LOG_LOADED="true"
 
-DEFAULT_LOG_PATH="/var/log/ubuntu-dev-tools.log"
+DEFAULT_LOG_PATH="${HOME}/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools.log"
 LOG_PATH="${LOG_PATH:-$DEFAULT_LOG_PATH}"
 
 # Asynchronous logging with buffering
@@ -68,25 +68,29 @@ log_debug() {
 
 # Buffered logging functions
 log_info_async() {
-  local msg="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
+  local msg
+  msg="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
   echo -e "\e[34m[INFO]\e[0m $*"
   add_to_log_buffer "$msg"
 }
 
 log_success_async() {
-  local msg="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
+  local msg
+  msg="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
   echo -e "\e[32m[SUCCESS]\e[0m $*"
   add_to_log_buffer "$msg"
 }
 
 log_warning_async() {
-  local msg="$(date '+%Y-%m-%d %H:%M:%S') [WARN] $*"
+  local msg
+  msg="$(date '+%Y-%m-%d %H:%M:%S') [WARN] $*"
   echo -e "\e[33m[WARN]\e[0m $*" >&2
   add_to_log_buffer "$msg"
 }
 
 log_error_async() {
-  local msg="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
+  local msg
+  msg="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
   echo -e "\e[31m[ERROR]\e[0m $*" >&2
   add_to_log_buffer "$msg"
   # Force immediate flush for errors
@@ -94,7 +98,8 @@ log_error_async() {
 }
 
 log_debug_async() {
-  local msg="$(date '+%Y-%m-%d %H:%M:%S') [DEBUG] $*"
+  local msg
+  msg="$(date '+%Y-%m-%d %H:%M:%S') [DEBUG] $*"
   echo -e "\e[36m[DEBUG]\e[0m $*"
   add_to_log_buffer "$msg"
 }
@@ -153,7 +158,6 @@ flush_log_buffer() {
   # Clear buffer
   LOG_BUFFER=()
   LOG_BUFFER_COUNT=0
-  LOG_LAST_FLUSH=$(date +%s)
 }
 
 # Execute command with logging
@@ -266,7 +270,7 @@ stop_spinner() {
   fi
 
   # Clean up spinner entry
-  unset ACTIVE_SPINNERS["$spinner_id"]
+  unset "ACTIVE_SPINNERS[$spinner_id]"
 
   # Clear spinner line and show completion
   printf "\r\e[32m[COMPLETE]\e[0m %s ✓%*s\n" "${task}" $((50 - ${#task})) ""
@@ -318,10 +322,10 @@ validate_log_path() {
     return 1
   fi
 
-  # Check for suspicious characters
-  if [[ "$path" =~ ";" || "$path" =~ "&" || "$path" =~ "|" || "$path" =~ "\`" || "$path" =~ "\$" ]]; then
-    return 1
-  fi
+  # Check for suspicious characters using string matching
+  case "$path" in
+  *";"* | *"&"* | *"|"* | *'`'* | *'$'*) return 1 ;;
+  esac
 
   return 0
 }
@@ -776,7 +780,8 @@ finish_logging() {
   fi
 
   # Final log entry
-  local end_msg="=== [$(basename -- "$0")] Finished at $(date) ==="
+  local end_msg
+  end_msg="=== [$(basename -- "$0")] Finished at $(date) ==="
   if [[ -n "$log_stats" ]]; then
     end_msg="${end_msg} [$log_stats]"
   fi

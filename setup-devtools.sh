@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 # setup-devtools.sh - Dev tools setup using util-install
+# Version: 1.0.0
+# Last updated: 2025-06-13
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/util-log.sh"
-source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR/util-install.sh"
+readonly VERSION="1.0.0"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Dry-run mode support
+readonly DRY_RUN="${DRY_RUN:-false}"
+
+# Operating system detection for cross-platform compatibility
+readonly OS_TYPE="$(uname -s)"
+
+# Source utility modules with error checking
+source "$SCRIPT_DIR/util-log.sh" || {
+  echo "FATAL: Failed to source util-log.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+  echo "FATAL: Failed to source util-env.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+  echo "FATAL: Failed to source util-install.sh" >&2
+  exit 1
+}
 
 # Use more accessible log path
-LOGFILE="${HOME}/.cache/ubuntu-dev-tools.log"
+readonly LOGFILE="${HOME}/.cache/ubuntu-dev-tools.log}"
 mkdir -p "$(dirname "$LOGFILE")"
 init_logging "$LOGFILE"
 

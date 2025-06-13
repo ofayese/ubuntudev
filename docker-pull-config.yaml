@@ -1,19 +1,22 @@
 # docker-pull-config.yaml
 # Configuration file for docker-pull-essentials.sh
-# Version: 2.0.0
+# Version: 2.1.0
 # Last updated: 2025-06-13
 
 # Global settings
 settings:
-  timeout: 300        # Timeout per image in seconds
-  retries: 2          # Number of retry attempts
-  parallel: 4         # Number of parallel workers
+  timeout: 300 # Timeout per image in seconds
+  retries: 2 # Number of retry attempts
+  parallel: 4 # Number of parallel workers
   log_file: "docker-pull.log"
-  skip_ai: false      # Skip AI/ML models
+  skip_ai: false # Skip AI/ML models
   skip_windows: false # Skip Windows-specific images
   # Version management configuration
-  version_strategy: "pinned"  # pinned, latest, or mixed
+  version_strategy: "pinned" # pinned, latest, or mixed
   security_scan_enabled: true
+  # Human-readable naming configuration
+  use_human_names: true # Use friendly names for display
+  show_full_image_path: false # Show short names in logs
 
 # Resource management settings
 resource_management:
@@ -31,25 +34,33 @@ categories:
   base_os:
     enabled: true
     description: "Essential base operating system images"
-    priority: 1  # Higher priority = pull first
+    priority: 1 # Higher priority = pull first
     total_size_estimate_mb: 150
     images:
       - name: "ubuntu"
         tag: "22.04"
+        friendly_name: "Ubuntu-22.04"
+        short_name: "ubuntu-lts"
         digest: "sha256:77906da86b60585ce12215807090eb327e7386c8fafb5402369e421f44eff17e"
         size_mb: 77
         priority: "essential"
+        description: "Ubuntu 22.04 LTS base image"
       - name: "debian"
         tag: "12-slim"
+        friendly_name: "Debian-12-Slim"
+        short_name: "debian-slim"
         digest: "sha256:5a85f3e9c6b51bb6073dfc783224775f7b9aa93aed54fb51a3fa89bd67e66f02"
         size_mb: 54
         priority: "essential"
+        description: "Debian 12 minimal image"
       - name: "alpine"
         tag: "3.19"
+        friendly_name: "Alpine-3.19"
+        short_name: "alpine-latest"
         digest: "sha256:c5b1261d6d3e43071626931fc004f70149baeba2c8ec672bd4f27761f8e1ad6b"
         size_mb: 7
         priority: "essential"
-
+        description: "Alpine Linux minimal image"
   programming_languages:
     enabled: true
     description: "Programming language runtimes"
@@ -58,35 +69,52 @@ categories:
     images:
       - name: "python"
         tag: "3.12-slim"
+        friendly_name: "Python-3.12-Slim"
+        short_name: "python-312"
         digest: "sha256:5bef08944ef1a56648f254d8c0ca277ace2d773affb6b4f1f12ec0f9f8d5566b"
         size_mb: 150
         priority: "high"
+        description: "Python 3.12 slim runtime"
       - name: "node"
         tag: "20-alpine"
+        friendly_name: "Node-20-Alpine"
+        short_name: "node-20"
         digest: "sha256:0e9b91b16ab323a5d6c93a269ed8872da6da3de94a690fa97d6fab69ebc93a25"
         size_mb: 120
         priority: "high"
+        description: "Node.js 20 on Alpine Linux"
       - name: "openjdk"
         tag: "21-jdk-slim"
+        friendly_name: "OpenJDK-21-Slim"
+        short_name: "java-21"
         digest: "sha256:ffa45b1fe7c28c27e1fd42bb248599e3bd32186fbd69a9d92a101c8386fc9d0c"
         size_mb: 450
         priority: "medium"
+        description: "OpenJDK 21 development kit"
       - name: "golang"
         tag: "1.22-alpine"
+        friendly_name: "Go-1.22-Alpine"
+        short_name: "go-122"
         digest: "sha256:69bf5bc386b5c9a3c8a2a62932a658aeb4c41a4729fd2267db1966a34d0ab488"
         size_mb: 350
         priority: "medium"
+        description: "Go 1.22 on Alpine Linux"
       - name: "ruby"
         tag: "3.3-slim"
+        friendly_name: "Ruby-3.3-Slim"
+        short_name: "ruby-33"
         digest: "sha256:9e52cb3c959a41599ea3bfeb5cd09c4d8e14f3c2d6e5dc0c7e9bb6969e6a362e"
         size_mb: 180
         priority: "low"
+        description: "Ruby 3.3 slim runtime"
       - name: "php"
         tag: "8.3-cli-alpine"
+        friendly_name: "PHP-8.3-CLI-Alpine"
+        short_name: "php-83"
         digest: "sha256:dce825c550d65adb2d9c97a903e25883cc3bf3c839ffbcd1b2590f73e5cfff7d"
         size_mb: 140
         priority: "low"
-
+        description: "PHP 8.3 CLI on Alpine"
   databases:
     enabled: true
     description: "Database systems"
@@ -95,42 +123,65 @@ categories:
     images:
       - name: "postgres"
         tag: "16-alpine"
+        friendly_name: "PostgreSQL-16-Alpine"
+        short_name: "postgres-16"
         digest: "sha256:8a01e0e83a33111570dc81fa78a5afb41b3e1aea6ee42b8f08d5ed8a3b90c3f2"
         size_mb: 250
         priority: "medium"
+        description: "PostgreSQL 16 on Alpine"
       - name: "mysql"
         tag: "8.0"
+        friendly_name: "MySQL-8.0"
+        short_name: "mysql-80"
         digest: "sha256:6ce54b6a3ce53d77c71d14d5faf10dc0a81c8b6812e1d4273c5447c96e5b246f"
         size_mb: 450
         priority: "medium"
+        description: "MySQL 8.0 server"
       - name: "mariadb"
         tag: "11.2"
+        friendly_name: "MariaDB-11.2"
+        short_name: "mariadb-112"
         digest: "sha256:b42a18fe5c7e2a7bb047f24ea8a0eeac87e8fdc4c5db2f9c93a43c3c82ee4f0b"
         size_mb: 400
         priority: "medium"
+        description: "MariaDB 11.2 server"
       - name: "mongo"
         tag: "7.0"
+        friendly_name: "MongoDB-7.0"
+        short_name: "mongo-70"
         digest: "sha256:e5cfea78c68c7cff723b010cc5b4d04f2f97dd7a61e7c52d0805a1b08e83c8ca"
         size_mb: 700
         priority: "medium"
+        description: "MongoDB 7.0 document database"
       - name: "redis"
         tag: "7.2-alpine"
+        friendly_name: "Redis-7.2-Alpine"
+        short_name: "redis-72"
         digest: "sha256:5a9b46c4a9d3809bd94a6befa078f3148c23f61bc1e194bbc9c14d9ad3e18f9b"
         size_mb: 50
         priority: "high"
+        description: "Redis 7.2 on Alpine"
       - name: "redis/redis-stack"
         tag: "7.2.0-v0"
+        friendly_name: "Redis-Stack-7.2"
+        short_name: "redis-stack"
         size_mb: 150
         priority: "low"
+        description: "Redis Stack with modules"
       - name: "pgvector/pgvector"
         tag: "pg16"
+        friendly_name: "PostgreSQL-Vector-16"
+        short_name: "postgres-vector"
         size_mb: 300
         priority: "low"
+        description: "PostgreSQL with vector extension"
       - name: "myscale/myscaledb"
         tag: "latest-20240501"
+        friendly_name: "MyScale-DB-Latest"
+        short_name: "myscale-db"
         size_mb: 800
         priority: "low"
-
+        description: "MyScale vector database"
   devcontainers:
     enabled: true
     description: "Development container images"
@@ -139,20 +190,32 @@ categories:
     images:
       - name: "mcr.microsoft.com/devcontainers/universal"
         tag: "2-linux"
+        friendly_name: "DevContainer-Universal-Linux"
+        short_name: "devcon-universal"
         size_mb: 2500
         priority: "medium"
+        description: "Universal development container"
       - name: "mcr.microsoft.com/devcontainers/base"
         tag: "ubuntu-24.04"
+        friendly_name: "DevContainer-Base-Ubuntu"
+        short_name: "devcon-base"
         size_mb: 800
         priority: "high"
+        description: "Base development container Ubuntu 24.04"
       - name: "mcr.microsoft.com/devcontainers/python"
         tag: "3-bullseye"
+        friendly_name: "DevContainer-Python-Bullseye"
+        short_name: "devcon-python"
         size_mb: 1200
         priority: "medium"
+        description: "Python development container"
       - name: "mcr.microsoft.com/devcontainers/javascript-node"
         tag: "20-bullseye"
+        friendly_name: "DevContainer-Node-Bullseye"
+        short_name: "devcon-node"
         size_mb: 1000
         priority: "medium"
+        description: "Node.js development container"
 
   microsoft_dotnet:
     enabled: true
@@ -215,7 +278,6 @@ categories:
         tag: "preview-alpine-3.20"
         size_mb: 300
         priority: "low"
-
   web_servers:
     enabled: true
     description: "Web servers and proxies"
@@ -224,22 +286,34 @@ categories:
     images:
       - name: "nginx"
         tag: "1.26-alpine"
+        friendly_name: "Nginx-1.26-Alpine"
+        short_name: "nginx-126"
         digest: "sha256:20c92ceb0a30704c1a0b39681bd7a12ce972f1c86dd02b81d2a9d2fc16615d69"
         size_mb: 50
         priority: "high"
+        description: "Nginx 1.26 web server"
       - name: "httpd"
         tag: "2.4-alpine"
+        friendly_name: "Apache-2.4-Alpine"
+        short_name: "apache-24"
         digest: "sha256:893c8aab34532ac5d5c08b69bd0d062e4a325df7dd13acd015ccec344a9495a1"
         size_mb: 60
         priority: "medium"
+        description: "Apache HTTP Server 2.4"
       - name: "caddy"
         tag: "2.7-alpine"
+        friendly_name: "Caddy-2.7-Alpine"
+        short_name: "caddy-27"
         size_mb: 80
         priority: "medium"
+        description: "Caddy web server 2.7"
       - name: "haproxy"
         tag: "2.9-alpine"
+        friendly_name: "HAProxy-2.9-Alpine"
+        short_name: "haproxy-29"
         size_mb: 35
         priority: "medium"
+        description: "HAProxy load balancer 2.9"
 
   devops_tools:
     enabled: true
@@ -279,7 +353,6 @@ categories:
         tag: "lts-jdk17"
         size_mb: 800
         priority: "low"
-
   ai_ml:
     enabled: true
     description: "AI/ML models and tools"
@@ -288,13 +361,17 @@ categories:
     images:
       - name: "ai/llama3.2"
         tag: "7b-instruct-v1"
+        friendly_name: "Llama-3.2-7B-Instruct"
+        short_name: "llama32-7b"
         type: "container"
         size_mb: 4200
         gpu_required: false
         priority: "low"
-        description: "Llama 3.2 language model container"
+        description: "Llama 3.2 7B instruction-tuned model"
       - name: "ai/mistral"
         tag: "7b-instruct-v0.2"
+        friendly_name: "Mistral-7B-Instruct"
+        short_name: "mistral-7b"
         type: "container"
         size_mb: 3800
         gpu_required: true
@@ -302,13 +379,17 @@ categories:
         description: "Mistral 7B instruction-tuned model"
       - name: "ai/deepcoder-preview"
         tag: "v1.0"
+        friendly_name: "DeepCoder-Preview-v1"
+        short_name: "deepcoder-v1"
         type: "container"
         size_mb: 2100
         gpu_required: false
         priority: "low"
-        description: "DeepCoder preview model"
+        description: "DeepCoder preview coding model"
       - name: "ai/smollm2"
         tag: "2b-chat-v1"
+        friendly_name: "SmolLM2-2B-Chat"
+        short_name: "smollm2-2b"
         type: "model"
         size_mb: 1800
         gpu_required: false
@@ -317,6 +398,8 @@ categories:
         model_format: "gguf"
       - name: "ai/llama3.3"
         tag: "70b-instruct-v1"
+        friendly_name: "Llama-3.3-70B-Instruct"
+        short_name: "llama33-70b"
         type: "model"
         size_mb: 38500
         gpu_required: true
@@ -325,6 +408,8 @@ categories:
         model_format: "safetensors"
       - name: "ai/phi4"
         tag: "14b-v1"
+        friendly_name: "Phi-4-14B"
+        short_name: "phi4-14b"
         type: "model"
         size_mb: 7800
         gpu_required: true
@@ -332,6 +417,8 @@ categories:
         description: "Phi-4 14B parameter model"
       - name: "ai/qwen2.5"
         tag: "32b-instruct-v1"
+        friendly_name: "Qwen-2.5-32B-Instruct"
+        short_name: "qwen25-32b"
         type: "model"
         size_mb: 18200
         gpu_required: true
@@ -339,6 +426,8 @@ categories:
         description: "Qwen 2.5 32B instruction model"
       - name: "ai/mxbai-embed-large"
         tag: "v1"
+        friendly_name: "MxBAI-Embed-Large"
+        short_name: "mxbai-embed"
         type: "model"
         size_mb: 600
         gpu_required: false
@@ -395,18 +484,18 @@ categories:
 environments:
   wsl2:
     skip_windows: true
-    parallel: 2  # Lower parallel count for WSL2
+    parallel: 2 # Lower parallel count for WSL2
     resource_overrides:
       max_concurrent_downloads: 2
       skip_large_images: true
       size_threshold_mb: 5000
-  
+
   native_linux:
     skip_windows: false
-    parallel: 8  # Higher parallel count for native Linux
-  
+    parallel: 8 # Higher parallel count for native Linux
+
   ci_cd:
-    timeout: 600  # Longer timeout for CI/CD environments
+    timeout: 600 # Longer timeout for CI/CD environments
     retries: 3
     resource_overrides:
       essential_only: true
@@ -432,7 +521,7 @@ dynamic_configuration:
           apply_profile: "standard_memory"
         - condition: ">= 16GB"
           apply_profile: "high_memory"
-    
+
     - capability: "available_disk_space"
       thresholds:
         - condition: "< 20GB"
@@ -452,7 +541,7 @@ adaptive_profiles:
     settings_overrides:
       parallel: 1
       timeout: 600
-      
+
   minimal_disk:
     category_modifications:
       ai_ml:

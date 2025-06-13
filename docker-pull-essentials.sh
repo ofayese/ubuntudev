@@ -51,11 +51,42 @@ ENABLE_CONTENT_TRUST="${DOCKER_CONTENT_TRUST:-false}"
 VULNERABILITY_SCAN="${ENABLE_VULN_SCAN:-false}"
 ALLOWED_REGISTRIES="${DOCKER_ALLOWED_REGISTRIES:-}"
 
-# Counters for reporting
+# Counters for reporting (use file-based counters for thread safety)
 declare -i TOTAL_IMAGES=0
-declare -i SUCCESSFUL_PULLS=0
-declare -i FAILED_PULLS=0
+readonly SUCCESSFUL_COUNTER="${TEMP_DIR}/successful_count"
+readonly FAILED_COUNTER="${TEMP_DIR}/failed_count"
 declare -a FAILED_IMAGES=()
+
+# Initialize counters
+echo "0" >"${SUCCESSFUL_COUNTER}"
+echo "0" >"${FAILED_COUNTER}"
+
+# Thread-safe counter functions
+increment_successful() {
+  (
+    flock -x 200
+    local count
+    count=$(cat "${SUCCESSFUL_COUNTER}")
+    echo $((count + 1)) >"${SUCCESSFUL_COUNTER}"
+  ) 200>"${SUCCESSFUL_COUNTER}.lock"
+}
+
+increment_failed() {
+  (
+    flock -x 200
+    local count
+    count=$(cat "${FAILED_COUNTER}")
+    echo $((count + 1)) >"${FAILED_COUNTER}"
+  ) 200>"${FAILED_COUNTER}.lock"
+}
+
+get_successful_count() {
+  cat "${SUCCESSFUL_COUNTER}" 2>/dev/null || echo "0"
+}
+
+get_failed_count() {
+  cat "${FAILED_COUNTER}" 2>/dev/null || echo "0"
+}
 
 # Temporary files for parallel processing
 TEMP_DIR="$(mktemp -d)"
@@ -66,6 +97,10 @@ readonly STATE_FILE="${TEMP_DIR}/pull_state.json"
 readonly COMPLETED_FILE="${TEMP_DIR}/completed_images"
 readonly FAILED_FILE="${TEMP_DIR}/failed_images"
 readonly SECURITY_LOG="${TEMP_DIR}/security_validation.log"
+readonly QUEUE_LOCK="${TEMP_DIR}/queue.lock"
+readonly CONFIG_CACHE="${TEMP_DIR}/config.cache"
+readonly PROGRESS_STATE="${TEMP_DIR}/progress.state"
+readonly ERROR_CLASSIFICATION="${TEMP_DIR}/error_classes.log"
 
 # Store start time for duration calculation
 START_TIME="$(date +%s)"
@@ -121,12 +156,77 @@ log_debug() {
   fi
 }
 
-# Progress indicator
+# Error classification system
+classify_error() {
+  local error_msg="$1"
+  local image="$2"
+  local error_type="UNKNOWN"
+
+  case "${error_msg}" in
+  *"no space left on device"*)
+    error_type="DISK_SPACE"
+    ;;
+  *"network"* | *"timeout"* | *"connection"*)
+    error_type="NETWORK"
+    ;;
+  *"authentication"* | *"authorization"* | *"denied"*)
+    error_type="AUTH"
+    ;;
+  *"not found"* | *"does not exist"*)
+    error_type="NOT_FOUND"
+    ;;
+  *"manifest"* | *"digest"*)
+    error_type="MANIFEST"
+    ;;
+  *"rate"* | *"limit"*)
+    error_type="RATE_LIMIT"
+    ;;
+  *)
+    error_type="UNKNOWN"
+    ;;
+  esac
+
+  echo "$(date '+%Y-%m-%d %H:%M:%S'):${image}:${error_type}:${error_msg}" >>"${ERROR_CLASSIFICATION}"
+  echo "${error_type}"
+}
+
+# Progress indicator with size awareness
 show_progress() {
   local current="$1"
   local total="$2"
+  local bytes_downloaded="${3:-0}"
+  local total_bytes="${4:-0}"
+
   local percentage=$((current * 100 / total))
-  printf "\r${LOG_PREFIX} Progress: [%3d%%] %d/%d images" "${percentage}" "${current}" "${total}"
+  local size_info=""
+
+  if [[ "${total_bytes}" -gt 0 ]]; then
+    local bytes_percentage=$((bytes_downloaded * 100 / total_bytes))
+    local mb_downloaded=$((bytes_downloaded / 1024 / 1024))
+    local mb_total=$((total_bytes / 1024 / 1024))
+    size_info=" (${mb_downloaded}/${mb_total}MB - ${bytes_percentage}%)"
+  fi
+
+  # Calculate ETA
+  local eta_info=""
+  if [[ -f "${PROGRESS_STATE}" ]] && [[ "${current}" -gt 0 ]]; then
+    local start_time
+    start_time=$(head -n1 "${PROGRESS_STATE}" 2>/dev/null || echo "${START_TIME}")
+    local current_time
+    current_time=$(date +%s)
+    local elapsed=$((current_time - start_time))
+
+    if [[ "${elapsed}" -gt 0 ]] && [[ "${current}" -gt 0 ]]; then
+      local rate=$((current * 1000 / elapsed)) # images per second * 1000
+      local remaining=$((total - current))
+      local eta_seconds=$((remaining * 1000 / rate))
+      local eta_minutes=$((eta_seconds / 60))
+      eta_info=" ETA: ${eta_minutes}m"
+    fi
+  fi
+
+  printf "\r${LOG_PREFIX} Progress: [%3d%%] %d/%d images%s%s" \
+    "${percentage}" "${current}" "${total}" "${size_info}" "${eta_info}"
 }
 
 # Check prerequisites
@@ -213,30 +313,44 @@ cleanup_old_images() {
   log_info "Old image cleanup completed"
 }
 
-# Background disk monitoring function
+# Background disk monitoring function with pull synchronization
 monitor_disk_space() {
   local monitor_pid=$$
   local last_check=0
+  local monitoring_active="${TEMP_DIR}/disk_monitoring_active"
+
+  # Signal that monitoring is active
+  echo "1" >"${monitoring_active}"
 
   log_debug "Starting disk space monitoring (PID: ${monitor_pid})"
 
-  while kill -0 $monitor_pid 2>/dev/null; do
-    local current_time=$(date +%s)
+  while [[ -f "${monitoring_active}" ]] && kill -0 $monitor_pid 2>/dev/null; do
+    local current_time
+    current_time=$(date +%s)
 
     if [[ $((current_time - last_check)) -ge ${DISK_CHECK_INTERVAL} ]]; then
-      local available_gb=$(get_available_disk)
-      local usage_percent=$(df /var/lib/docker 2>/dev/null | awk 'NR==2 {gsub(/%/, "", $5); print $5}' || echo "0")
+      local available_gb
+      available_gb=$(get_available_disk)
+      local usage_percent
+      usage_percent=$(df /var/lib/docker 2>/dev/null | awk 'NR==2 {gsub(/%/, "", $5); print $5}' || echo "0")
 
       log_debug "Disk check: ${available_gb}GB available, ${usage_percent}% used"
 
+      # Update disk monitoring state
+      echo "${current_time}:${available_gb}:${usage_percent}" >"${TEMP_DIR}/disk_state"
+
       if [[ ${available_gb} -lt ${MIN_FREE_SPACE_GB} ]]; then
         log_error "Critical: Low disk space detected: ${available_gb}GB available"
+        echo "CRITICAL_DISK_SPACE" >"${TEMP_DIR}/stop_pulls"
         cleanup_partial_downloads
-        kill -TERM $monitor_pid
-        exit 1
+        # Don't kill immediately, let workers finish current pulls
+        break
       elif [[ ${usage_percent} -gt ${CLEANUP_THRESHOLD_PERCENT} ]]; then
         log_warn "High disk usage detected: ${usage_percent}% used"
-        cleanup_old_images
+        # Only cleanup if no active pulls to avoid interference
+        if [[ ! -f "${TEMP_DIR}/pull_active" ]]; then
+          cleanup_old_images
+        fi
       fi
 
       last_check=$current_time
@@ -244,52 +358,76 @@ monitor_disk_space() {
 
     sleep 10
   done
+
+  rm -f "${monitoring_active}" 2>/dev/null || true
 }
 
-# Configuration loading function
+# Configuration loading function with caching
 load_configuration() {
   local config_file="$1"
+  local config_hash
+  config_hash=$(sha256sum "${config_file}" 2>/dev/null | cut -d' ' -f1 || echo "no-hash")
+  local cached_config="${CONFIG_CACHE}.${config_hash}"
 
   if [[ ! -f "${config_file}" ]]; then
     log_error "Configuration file not found: ${config_file}"
     return 1
   fi
 
+  # Check if we have a valid cached version
+  if [[ -f "${cached_config}" ]] && [[ "${cached_config}" -nt "${config_file}" ]]; then
+    log_info "Using cached configuration from: ${cached_config}"
+    source "${cached_config}"
+    return 0
+  fi
+
   log_info "Loading configuration from: ${config_file}"
 
   # Check if yq is available for YAML parsing
   if command -v yq >/dev/null 2>&1; then
-    parse_yaml_config_yq "${config_file}"
-    return $?
+    if parse_yaml_config_yq "${config_file}" "${cached_config}"; then
+      source "${cached_config}"
+      return 0
+    fi
   elif command -v python3 >/dev/null 2>&1; then
-    parse_yaml_config_python "${config_file}"
-    return $?
+    if parse_yaml_config_python "${config_file}" "${cached_config}"; then
+      source "${cached_config}"
+      return 0
+    fi
   else
     log_error "No YAML parser available (yq or python3)"
     return 1
   fi
 }
 
-# Parse YAML with yq
+# Parse YAML with yq and cache results
 parse_yaml_config_yq() {
   local config_file="$1"
+  local cache_file="$2"
 
-  # Get global settings
-  TIMEOUT=$(yq eval '.settings.timeout // 300' "${config_file}")
-  RETRIES=$(yq eval '.settings.retries // 2' "${config_file}")
-  PARALLEL=$(yq eval '.settings.parallel // 4' "${config_file}")
-  SKIP_AI=$(yq eval '.settings.skip_ai // false' "${config_file}")
-  SKIP_WINDOWS=$(yq eval '.settings.skip_windows // false' "${config_file}")
+  # Create cache file with exported variables
+  {
+    echo "# Cached configuration from ${config_file}"
+    echo "# Generated on $(date)"
+    echo ""
 
-  # Check for environment-specific overrides
-  if [[ "${WSL_ENV}" == "true" ]] && yq eval '.environments.wsl2 | length > 0' "${config_file}" >/dev/null 2>&1; then
-    log_info "Applying WSL2-specific configuration overrides"
-    PARALLEL=$(yq eval '.environments.wsl2.parallel // .settings.parallel' "${config_file}")
-    SKIP_WINDOWS=$(yq eval '.environments.wsl2.skip_windows // .settings.skip_windows' "${config_file}")
-  elif [[ "${WSL_ENV}" == "false" ]] && yq eval '.environments.native_linux | length > 0' "${config_file}" >/dev/null 2>&1; then
-    log_info "Applying native Linux configuration overrides"
-    PARALLEL=$(yq eval '.environments.native_linux.parallel // .settings.parallel' "${config_file}")
-  fi
+    # Get global settings
+    echo "export TIMEOUT=$(yq eval '.settings.timeout // 300' "${config_file}")"
+    echo "export RETRIES=$(yq eval '.settings.retries // 2' "${config_file}")"
+    echo "export PARALLEL=$(yq eval '.settings.parallel // 4' "${config_file}")"
+    echo "export SKIP_AI=$(yq eval '.settings.skip_ai // false' "${config_file}")"
+    echo "export SKIP_WINDOWS=$(yq eval '.settings.skip_windows // false' "${config_file}")"
+
+    # Check for environment-specific overrides
+    if [[ "${WSL_ENV}" == "true" ]] && yq eval '.environments.wsl2 | length > 0' "${config_file}" >/dev/null 2>&1; then
+      echo "# WSL2-specific overrides"
+      echo "export PARALLEL=$(yq eval '.environments.wsl2.parallel // .settings.parallel' "${config_file}")"
+      echo "export SKIP_WINDOWS=$(yq eval '.environments.wsl2.skip_windows // .settings.skip_windows' "${config_file}")"
+    elif [[ "${WSL_ENV}" == "false" ]] && yq eval '.environments.native_linux | length > 0' "${config_file}" >/dev/null 2>&1; then
+      echo "# Native Linux overrides"
+      echo "export PARALLEL=$(yq eval '.environments.native_linux.parallel // .settings.parallel' "${config_file}")"
+    fi
+  } >"${cache_file}"
 
   return 0
 }
@@ -341,9 +479,15 @@ try:
                     img_type = img.get('type', 'IMAGE').upper()
                     if img_type not in ('IMAGE', 'MODEL'):
                         img_type = 'IMAGE'
-                    print(f"CONFIG_IMAGE={img_type}:{img['name']}:{img['tag']}")
+                    
+                    # Extract human-readable names
+                    friendly_name = img.get('friendly_name', f"{img['name']}:{img['tag']}")
+                    short_name = img.get('short_name', img['name'].split('/')[-1])
+                    description = img.get('description', '')
+                    
+                    print(f"CONFIG_IMAGE={img_type}:{img['name']}:{img['tag']}:{friendly_name}:{short_name}:{description}")
                 elif isinstance(img, str):
-                    print(f"CONFIG_IMAGE=IMAGE:{img}")
+                    print(f"CONFIG_IMAGE=IMAGE:{img}:::{img.split('/')[-1].split(':')[0]}:")
     
 except Exception as e:
     print(f"CONFIG_ERROR={str(e)}", file=sys.stderr)
@@ -393,9 +537,10 @@ build_image_list() {
 
     # Process config_images file if it exists
     if [[ -f "${TEMP_DIR}/config_images" ]]; then
-      while IFS=: read -r type name tag; do
+      while IFS=: read -r type name tag friendly_name short_name description; do
         local full_image="${name}:${tag}"
-        echo "${type}:${full_image}" >>"${image_list}"
+        # Store metadata for display purposes
+        echo "${type}:${full_image}:${friendly_name:-${full_image}}:${short_name:-${name##*/}}:${description}" >>"${image_list}"
       done <"${TEMP_DIR}/config_images"
     else
       log_warn "No images found in configuration, using default list"
@@ -485,13 +630,15 @@ validate_all_images() {
       continue
     fi
 
+    local entry="${line}"
     local type="${line%%:*}"
-    local image="${line#*:}"
+    local remaining="${line#*:}"
+    local image="${remaining%%:*}"
 
     if [[ "$type" == "IMAGE" ]] && validate_image_exists "${image}"; then
-      echo "${line}" >>"${valid_list}"
+      echo "${entry}" >>"${valid_list}"
     else
-      echo "${line}" >>"${invalid_list}"
+      echo "${entry}" >>"${invalid_list}"
     fi
 
     ((validation_count++))
@@ -546,37 +693,110 @@ validate_image_registry() {
   return 0
 }
 
-# Core pull function
+# Enhanced retry logic with jitter and circuit breaker
 pull_image() {
-  local image="$1"
+  local entry="$1"
+  local image
+  image=$(get_image_name "${entry}")
+  local display_name
+  display_name=$(get_display_name "${entry}" "true")
+  local description
+  description=$(get_image_description "${entry}")
+
   local attempt=1
   local max_attempts=$((RETRIES + 1))
+  local base_delay=2
+  local circuit_breaker_file="${TEMP_DIR}/circuit_breaker_${image//[\/:]/_}"
 
   if [[ "${DRY_RUN}" == "true" ]]; then
-    log_info "[DRY-RUN] Would pull image: ${image}"
+    log_info "[DRY-RUN] Would pull ${display_name} (${image})"
+    if [[ -n "${description}" ]]; then
+      log_debug "  Description: ${description}"
+    fi
     return 0
+  fi
+
+  # Check circuit breaker
+  if [[ -f "${circuit_breaker_file}" ]]; then
+    local last_failure
+    last_failure=$(cat "${circuit_breaker_file}")
+    local current_time
+    current_time=$(date +%s)
+    local cooldown_period=300 # 5 minutes
+
+    if [[ $((current_time - last_failure)) -lt ${cooldown_period} ]]; then
+      log_warn "Circuit breaker open for ${display_name}, skipping for now"
+      return 1
+    else
+      rm -f "${circuit_breaker_file}"
+    fi
   fi
 
   # Security validation
   if ! validate_image_registry "${image}"; then
-    log_error "Registry validation failed for: ${image}"
+    log_error "Registry validation failed for: ${display_name} (${image})"
     return 1
   fi
 
-  while [[ ${attempt} -le ${max_attempts} ]]; do
-    log_debug "Pulling ${image} (attempt ${attempt}/${max_attempts})"
+  # Signal that a pull is active
+  echo "1" >"${TEMP_DIR}/pull_active"
 
-    if timeout "${TIMEOUT}" docker pull "${image}" >/dev/null 2>&1; then
-      log_info "Successfully pulled: ${image}"
+  while [[ ${attempt} -le ${max_attempts} ]]; do
+    log_debug "Pulling ${display_name} (attempt ${attempt}/${max_attempts})"
+
+    # Capture stderr for error classification
+    local error_output
+    if error_output=$(timeout "${TIMEOUT}" docker pull "${image}" 2>&1); then
+      log_info "✓ Successfully pulled: ${display_name}"
+      if [[ -n "${description}" ]]; then
+        log_debug "  ${description}"
+      fi
+      rm -f "${TEMP_DIR}/pull_active"
       return 0
     else
       local exit_code=$?
+      local error_type
+      error_type=$(classify_error "${error_output}" "${image}")
+
+      log_warn "✗ Attempt ${attempt} failed for ${display_name} (${error_type}): ${error_output}"
+
+      # Handle different error types
+      case "${error_type}" in
+      "RATE_LIMIT")
+        # Longer delay for rate limiting
+        local delay=$((base_delay * attempt * 5))
+        ;;
+      "DISK_SPACE")
+        # Immediate failure for disk space issues
+        log_error "Disk space error for ${image}, aborting"
+        rm -f "${TEMP_DIR}/pull_active"
+        return ${exit_code}
+        ;;
+      "AUTH")
+        # Circuit breaker for auth failures
+        echo "$(date +%s)" >"${circuit_breaker_file}"
+        log_error "Authentication error for ${display_name}, opening circuit breaker"
+        rm -f "${TEMP_DIR}/pull_active"
+        return ${exit_code}
+        ;;
+      *)
+        # Standard exponential backoff with jitter
+        local delay=$((base_delay * attempt * attempt))
+        ;;
+      esac
+
       if [[ ${attempt} -eq ${max_attempts} ]]; then
-        log_error "Failed to pull ${image} after ${max_attempts} attempts"
+        log_error "Failed to pull ${display_name} after ${max_attempts} attempts (${error_type})"
+        # Set circuit breaker for repeated failures
+        echo "$(date +%s)" >"${circuit_breaker_file}"
+        rm -f "${TEMP_DIR}/pull_active"
         return ${exit_code}
       else
-        log_warn "Attempt ${attempt} failed for ${image}, retrying..."
-        sleep $((attempt * 2)) # Exponential backoff
+        # Add jitter (0-50% of delay)
+        local jitter=$((RANDOM % (delay / 2 + 1)))
+        local total_delay=$((delay + jitter))
+        log_info "Retrying ${display_name} in ${total_delay} seconds..."
+        sleep "${total_delay}"
       fi
     fi
 
@@ -584,37 +804,118 @@ pull_image() {
   done
 
   # Should not reach here
+  rm -f "${TEMP_DIR}/pull_active"
   return 1
 }
 
-# Pull worker function
+# Pull worker function with proper queue locking
 pull_worker() {
   local worker_id="$1"
   local queue_file="$2"
   local results_file="$3"
+  local processed_count=0
 
-  while IFS= read -r line; do
+  log_debug "Worker ${worker_id} starting"
+
+  while true; do
+    local line=""
+
+    # Get next item from queue with file locking
+    (
+      flock -x 200
+      if [[ -s "${queue_file}" ]]; then
+        line=$(head -n1 "${queue_file}")
+        # Remove the processed line
+        sed -i '1d' "${queue_file}"
+      fi
+    ) 200>"${QUEUE_LOCK}"
+
+    # Exit if no more work
     if [[ -z "${line}" ]]; then
-      continue
+      log_debug "Worker ${worker_id} finished, processed ${processed_count} items"
+      break
     fi
 
+    local entry="${line}"
     local type="${line%%:*}"
-    local image="${line#*:}"
+    local remaining="${line#*:}"
+    local image="${remaining%%:*}"
 
     if [[ "$type" == "IMAGE" ]]; then
-      if pull_image "${image}"; then
+      if pull_image "${entry}"; then
         echo "IMAGE:${image}" >>"${COMPLETED_FILE}"
         echo "SUCCESS:${image}" >>"${results_file}"
-        ((SUCCESSFUL_PULLS++))
+        increment_successful
       else
         echo "IMAGE:${image}" >>"${FAILED_FILE}"
         echo "FAILED:${image}" >>"${results_file}"
-        ((FAILED_PULLS++))
-        FAILED_IMAGES+=("${image}")
+        increment_failed
+        # Thread-safe addition to failed images array
+        echo "${image}" >>"${TEMP_DIR}/failed_images_list"
       fi
     fi
 
-  done < <(sort -R "${queue_file}" | awk "NR % ${PARALLEL} == ${worker_id}")
+    ((processed_count++))
+
+    # Check for stop signal (e.g., critical disk space)
+    if [[ -f "${TEMP_DIR}/stop_pulls" ]]; then
+      log_warn "Worker ${worker_id} stopping due to stop signal"
+      break
+    fi
+  done
+}
+
+# Extract human-readable name from image entry
+get_display_name() {
+  local entry="$1"
+  local use_short="${2:-false}"
+
+  # Format: TYPE:IMAGE:FRIENDLY_NAME:SHORT_NAME:DESCRIPTION
+  local friendly_name short_name
+  IFS=: read -r _ _ friendly_name short_name _ <<<"${entry}"
+
+  if [[ "${use_short}" == "true" && -n "${short_name}" ]]; then
+    echo "${short_name}"
+  elif [[ -n "${friendly_name}" ]]; then
+    echo "${friendly_name}"
+  else
+    # Fallback to image name
+    IFS=: read -r _ image _ _ _ <<<"${entry}"
+    echo "${image}"
+  fi
+}
+
+# Extract just the image name from entry
+get_image_name() {
+  local entry="$1"
+  IFS=: read -r _ image _ _ _ <<<"${entry}"
+  echo "${image}"
+}
+
+# Extract description from image entry
+get_image_description() {
+  local entry="$1"
+  IFS=: read -r _ _ _ _ description <<<"${entry}"
+  echo "${description}"
+}
+
+# Display current operation with human-readable names
+show_current_operation() {
+  local entry="$1"
+  local operation="${2:-Processing}"
+
+  if [[ -n "${entry}" ]]; then
+    local display_name
+    display_name=$(get_display_name "${entry}" "true")
+    local description
+    description=$(get_image_description "${entry}")
+
+    if [[ -n "${description}" ]]; then
+      log_info "${operation}: ${display_name} - ${description}"
+    else
+      log_info "${operation}: ${display_name}"
+    fi
+  fi
 }
 
 # Parse command line args
@@ -719,10 +1020,10 @@ generate_report() {
   fi
 }
 
-# Main function
+# Main function with enhanced state management
 main() {
   # Initialize log file
-  >"${LOG_FILE}"
+  true >"${LOG_FILE}"
 
   log_info "Docker Pull Essentials v${SCRIPT_VERSION}"
   log_info "Starting with configuration: parallel=${PARALLEL}, retries=${RETRIES}, timeout=${TIMEOUT}"
@@ -732,6 +1033,9 @@ main() {
 
   # Check prerequisites
   check_prerequisites
+
+  # Initialize progress tracking
+  echo "${START_TIME}" >"${PROGRESS_STATE}"
 
   # Start disk monitoring in background
   monitor_disk_space &
@@ -749,9 +1053,11 @@ main() {
   echo
 
   # Initialize state tracking files
-  >"${COMPLETED_FILE}"
-  >"${FAILED_FILE}"
-  >"${RESULTS_FILE}"
+  true >"${COMPLETED_FILE}"
+  true >"${FAILED_FILE}"
+  true >"${RESULTS_FILE}"
+  true >"${ERROR_CLASSIFICATION}"
+  true >"${TEMP_DIR}/failed_images_list"
 
   # Start workers in background
   local worker_pids=()
@@ -760,21 +1066,45 @@ main() {
     worker_pids+=($!)
   done
 
-  # Wait for all workers to finish
+  # Monitor progress
   local completed=0
+  local total_bytes=0
+  local downloaded_bytes=0
+
   while [[ ${completed} -lt ${TOTAL_IMAGES} ]]; do
-    sleep 1
-    completed=$((SUCCESSFUL_PULLS + FAILED_PULLS))
-    show_progress "${completed}" "${TOTAL_IMAGES}"
+    sleep 2
+
+    # Check for stop signals
+    if [[ -f "${TEMP_DIR}/stop_pulls" ]]; then
+      log_warn "Stopping all workers due to critical condition"
+      for pid in "${worker_pids[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+      done
+      break
+    fi
+
+    local successful
+    successful=$(get_successful_count)
+    local failed
+    failed=$(get_failed_count)
+    completed=$((successful + failed))
+
+    show_progress "${completed}" "${TOTAL_IMAGES}" "${downloaded_bytes}" "${total_bytes}"
   done
 
-  # Wait for all workers to exit
+  # Wait for all workers to exit gracefully
   for pid in "${worker_pids[@]}"; do
-    wait "$pid" || true
+    wait "$pid" 2>/dev/null || true
   done
 
-  # Kill disk monitoring
-  kill "$monitor_pid" 2>/dev/null || true
+  # Stop disk monitoring
+  rm -f "${TEMP_DIR}/disk_monitoring_active" 2>/dev/null || true
+  wait "$monitor_pid" 2>/dev/null || true
+
+  # Build failed images array from file
+  if [[ -f "${TEMP_DIR}/failed_images_list" ]]; then
+    mapfile -t FAILED_IMAGES <"${TEMP_DIR}/failed_images_list"
+  fi
 
   # Generate report
   generate_report

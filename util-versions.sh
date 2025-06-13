@@ -665,6 +665,176 @@ setup_golang() {
   finish_logging
 }
 
+# --- Shell Profile Management Optimization ---
+declare -A SHELL_PROFILE_QUEUE=()
+
+queue_profile_update() {
+  local profile="$1"
+  local content="$2"
+  local marker="$3"
+
+  # Add to queue instead of immediate update
+  local key="${profile}_${marker}"
+  SHELL_PROFILE_QUEUE["$key"]="$content"
+}
+
+apply_all_profile_updates() {
+  log_info "Applying all shell profile updates..."
+
+  local profiles=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
+
+  for profile in "${profiles[@]}"; do
+    if [[ ! -f "$profile" ]]; then
+      continue
+    fi
+
+    local profile_name
+    profile_name=$(basename "$profile")
+    local updates_applied=false
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Copy existing content
+    cp "$profile" "$temp_file"
+
+    # Apply all queued updates for this profile
+    for key in "${!SHELL_PROFILE_QUEUE[@]}"; do
+      local key_profile="${key%_*}"
+      local marker="${key#*_}"
+      local content="${SHELL_PROFILE_QUEUE[$key]}"
+
+      if [[ "$key_profile" == "$profile_name" ]]; then
+        # Check if update already exists
+        if ! grep -q "$marker" "$temp_file"; then
+          echo "$content" >>"$temp_file"
+          updates_applied=true
+        fi
+      fi
+    done
+
+    # Only update file if changes were made
+    if [[ "$updates_applied" == "true" ]]; then
+      mv "$temp_file" "$profile"
+      log_info "Updated $profile_name"
+    else
+      rm -f "$temp_file"
+    fi
+  done
+
+  # Clear the queue
+  SHELL_PROFILE_QUEUE=()
+}
+
+# --- Parallel Installation Support ---
+setup_multiple_parallel() {
+  local components=("$@")
+  local max_parallel=3
+  local pids=()
+
+  log_info "Installing version managers in parallel..."
+
+  for component in "${components[@]}"; do
+    # Limit parallel processes
+    if [[ ${#pids[@]} -ge $max_parallel ]]; then
+      # Wait for one to complete
+      wait "${pids[0]}"
+      pids=("${pids[@]:1}") # Remove first element
+    fi
+
+    # Start installation in background
+    case "$component" in
+    "nvm")
+      setup_nvm true true &
+      ;;
+    "pyenv")
+      setup_pyenv true true &
+      ;;
+    "sdkman")
+      setup_sdkman true true &
+      ;;
+    "rustup")
+      setup_rustup &
+      ;;
+    "golang")
+      setup_golang &
+      ;;
+    *)
+      log_warning "Unknown component: $component"
+      continue
+      ;;
+    esac
+
+    pids+=($!)
+    log_info "Started $component installation"
+  done
+
+  # Wait for all remaining processes
+  for pid in "${pids[@]}"; do
+    wait "$pid" || log_warning "Component installation failed"
+  done
+
+  # Apply all profile updates at once
+  apply_all_profile_updates
+
+  log_success "Parallel installation completed"
+}
+
+# --- Resource Monitoring ---
+monitor_resource_usage() {
+  local operation_name="$1"
+  local log_file="/tmp/resource_${operation_name}.log"
+
+  log_debug "Starting resource monitoring for $operation_name"
+  echo "# Resource monitoring for $operation_name - $(date)" >"$log_file"
+
+  (
+    while true; do
+      local timestamp memory_usage disk_usage cpu_usage
+      timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+      memory_usage=$(free | awk '/^Mem:/ {printf "%.1f", $3/$2 * 100}')
+      disk_usage=$(df "$HOME" | awk 'NR==2 {print $5}' | tr -d '%')
+      cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | tr -d '%us,')
+
+      echo "$timestamp,$memory_usage,$disk_usage,$cpu_usage" >>"$log_file"
+
+      # Alert on extremely high resource usage
+      if (($(echo "$memory_usage > 95" | bc -l 2>/dev/null || echo 0))); then
+        log_warning "Critical memory usage detected: ${memory_usage}%"
+      fi
+
+      sleep 30
+    done
+  ) &
+
+  echo $! # Return PID of background process
+}
+
+# Configure all shell profiles for NVM with optimized function
+configure_nvm_environment() {
+  local nvm_config='
+# NVM Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$nvm_config" "NVM Configuration"
+  done
+}
+
+# Configure all shell profiles for pyenv with optimized function
+configure_pyenv_environment() {
+  local pyenv_config='
+# Pyenv Configuration
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+if command -v pyenv >/dev/null; then eval "$(pyenv init -)"; fi'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$pyenv_config" "Pyenv Configuration"
+  done
+}
+
 # Main function for demonstration
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo "Version manager utilities loaded. Use by sourcing this file."

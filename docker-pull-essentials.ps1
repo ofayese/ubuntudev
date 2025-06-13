@@ -78,11 +78,38 @@ function Write-Log {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "$timestamp $script:LogPrefix $Level`: $Message"
     
-    switch ($Level) {
-        "ERROR" { Write-Error $logMessage }
-        "WARN"  { Write-Warning $logMessage }
-        "DEBUG" { if ($VerbosePreference -eq "Continue") { Write-Verbose $logMessage } }
-        default { Write-Host $logMessage }
+    # Format message for better readability
+    if ($Message -match "✓|✗") {
+        # Colorize success and failure indicators
+        switch ($Level) {
+            "INFO" { 
+                if ($Message -match "✓") {
+                    Write-Host $logMessage -ForegroundColor Green
+                }
+                else {
+                    Write-Host $logMessage
+                }
+            }
+            "WARN" {
+                if ($Message -match "✗") {
+                    Write-Host $logMessage -ForegroundColor Red
+                }
+                else {
+                    Write-Warning $logMessage
+                }
+            }
+            "ERROR" { Write-Error $logMessage }
+            "DEBUG" { if ($VerbosePreference -eq "Continue") { Write-Verbose $logMessage } }
+            default { Write-Host $logMessage }
+        }
+    }
+    else {
+        switch ($Level) {
+            "ERROR" { Write-Error $logMessage }
+            "WARN" { Write-Warning $logMessage }
+            "DEBUG" { if ($VerbosePreference -eq "Continue") { Write-Verbose $logMessage } }
+            default { Write-Host $logMessage }
+        }
     }
     
     # Also write to log file

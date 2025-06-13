@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # util-env.sh - Unified environment detection and system info utilities
+# Version: 2.0.0
+# Last updated: 2025-06-13
+#
+# This module provides comprehensive environment detection, system resource
+# monitoring, and diagnostics capabilities for Ubuntu development environments.
 set -euo pipefail
 
 # Guard against multiple sourcing
@@ -10,6 +15,7 @@ readonly UTIL_ENV_LOADED="true"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/util-log.sh" ]]; then
+  # shellcheck source=./util-log.sh
   source "$SCRIPT_DIR/util-log.sh"
 fi
 
@@ -58,6 +64,704 @@ detect_environment() {
   echo "$env_type"
 }
 
+# --- Advanced WSL Integration and Windows Host Detection ---
+get_wsl_detailed_info() {
+  if [[ "$(get_wsl_version)" == "0" ]]; then
+    echo "{\"wsl_version\": \"0\", \"error\": \"Not running in WSL\"}"
+    return 1
+  fi
+
+  local wsl_info=()
+
+  # WSL version detection
+  local wsl_version
+  wsl_version=$(get_wsl_version)
+  wsl_info+=("\"wsl_version\": \"$wsl_version\"")
+
+  # Distribution information
+  local distro_name="${WSL_DISTRO_NAME:-unknown}"
+  wsl_info+=("\"distro_name\": \"$distro_name\"")
+
+  # Windows host information
+  local windows_info
+  windows_info=$(get_windows_host_info)
+  wsl_info+=("\"windows_host\": $windows_info")
+
+  # WSL configuration
+  local wsl_config
+  wsl_config=$(get_wsl_configuration)
+  wsl_info+=("\"configuration\": $wsl_config")
+
+  # Network configuration
+  local network_info
+  network_info=$(get_wsl_network_info)
+  wsl_info+=("\"network\": $network_info")
+
+  # Interop capabilities
+  local interop_info
+  interop_info=$(get_wsl_interop_info)
+  wsl_info+=("\"interop\": $interop_info")
+
+  # Combine into JSON
+  local IFS=','
+  echo "{${wsl_info[*]}}"
+}
+
+get_windows_host_info() {
+  local host_info=()
+
+  # Windows hostname
+  local hostname
+  hostname=$(get_windows_hostname)
+  host_info+=("\"hostname\": \"$hostname\"")
+
+  # Windows version
+  local windows_version
+  if command -v cmd.exe >/dev/null 2>&1; then
+    windows_version=$(cmd.exe /c "ver" 2>/dev/null | tr -d '\r\n' | sed 's/.*\[\(.*\)\].*/\1/' || echo "unknown")
+  else
+    windows_version="unknown"
+  fi
+  host_info+=("\"version\": \"$windows_version\"")
+
+  # Windows user information
+  local windows_user
+  if command -v cmd.exe >/dev/null 2>&1; then
+    windows_user=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n' || echo "unknown")
+  else
+    windows_user="unknown"
+  fi
+  host_info+=("\"user\": \"$windows_user\"")
+
+  # Available Windows drives
+  local drives=()
+  if command -v cmd.exe >/dev/null 2>&1; then
+    while IFS= read -r drive; do
+      [[ -n "$drive" ]] && drives+=("\"$drive\"")
+    done < <(cmd.exe /c "wmic logicaldisk get caption" 2>/dev/null | grep -E "^[A-Z]:" | awk '{print $1}' | tr -d '\r')
+  fi
+
+  local drives_json
+  drives_json="[$(
+    IFS=','
+    echo "${drives[*]}"
+  )]"
+  host_info+=("\"available_drives\": $drives_json")
+
+  # Docker Desktop detection
+  local docker_desktop="false"
+  if [[ -f "/mnt/c/Program Files/Docker/Docker/Docker Desktop.exe" ]] ||
+    [[ -f "/mnt/c/Users/$windows_user/AppData/Local/Docker/Docker Desktop.exe" ]]; then
+    docker_desktop="true"
+  fi
+  host_info+=("\"docker_desktop_installed\": $docker_desktop")
+
+  # VS Code installations
+  local vscode_installations=()
+  if [[ -f "/mnt/c/Program Files/Microsoft VS Code/bin/code.cmd" ]]; then
+    vscode_installations+=("\"stable\"")
+  fi
+  if [[ -f "/mnt/c/Program Files/Microsoft VS Code Insiders/bin/code-insiders.cmd" ]]; then
+    vscode_installations+=("\"insiders\"")
+  fi
+
+  local vscode_json
+  vscode_json="[$(
+    IFS=','
+    echo "${vscode_installations[*]}"
+  )]"
+  host_info+=("\"vscode_installations\": $vscode_json")
+
+  local IFS=','
+  echo "{${host_info[*]}}"
+}
+
+get_wsl_configuration() {
+  local config_info=()
+
+  # Systemd status
+  local systemd_enabled="false"
+  if [[ -f /etc/wsl.conf ]] && grep -q "systemd=true" /etc/wsl.conf; then
+    systemd_enabled="true"
+  fi
+  config_info+=("\"systemd_enabled\": $systemd_enabled")
+
+  # Systemd running status
+  local systemd_running="false"
+  if is_systemd_running; then
+    systemd_running="true"
+  fi
+  config_info+=("\"systemd_running\": $systemd_running")
+
+  # Mount configuration
+  local mount_config="{}"
+  if [[ -f /etc/wsl.conf ]]; then
+    local mount_enabled="true"
+    local mount_root="/"
+
+    if grep -q "enabled.*=.*false" /etc/wsl.conf; then
+      mount_enabled="false"
+    fi
+
+    local root_line
+    root_line=$(grep "^root" /etc/wsl.conf 2>/dev/null || echo "")
+    if [[ -n "$root_line" ]]; then
+      mount_root="${root_line#*=}"
+      mount_root="${mount_root// /}"
+    fi
+
+    mount_config="{\"enabled\": $mount_enabled, \"root\": \"$mount_root\"}"
+  fi
+  config_info+=("\"mount\": $mount_config")
+
+  # Network configuration
+  local network_config="{}"
+  if [[ -f /etc/wsl.conf ]]; then
+    local generate_hosts="true"
+    local generate_resolv_conf="true"
+
+    if grep -q "generateHosts.*=.*false" /etc/wsl.conf; then
+      generate_hosts="false"
+    fi
+    if grep -q "generateResolvConf.*=.*false" /etc/wsl.conf; then
+      generate_resolv_conf="false"
+    fi
+
+    network_config="{\"generateHosts\": $generate_hosts, \"generateResolvConf\": $generate_resolv_conf}"
+  fi
+  config_info+=("\"network\": $network_config")
+
+  local IFS=','
+  echo "{${config_info[*]}}"
+}
+
+get_wsl_network_info() {
+  local network_info=()
+
+  # WSL IP address
+  local wsl_ip
+  wsl_ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "unknown")
+  network_info+=("\"wsl_ip\": \"$wsl_ip\"")
+
+  # Windows host IP (from WSL perspective)
+  local host_ip
+  host_ip=$(ip route | grep default | awk '{print $3}' | head -1 || echo "unknown")
+  network_info+=("\"windows_host_ip\": \"$host_ip\"")
+
+  # DNS servers
+  local dns_servers=()
+  if [[ -f /etc/resolv.conf ]]; then
+    while IFS= read -r dns; do
+      dns_servers+=("\"$dns\"")
+    done < <(grep "^nameserver" /etc/resolv.conf | awk '{print $2}')
+  fi
+
+  local dns_json
+  dns_json="[$(
+    IFS=','
+    echo "${dns_servers[*]}"
+  )]"
+  network_info+=("\"dns_servers\": $dns_json")
+
+  # Network interfaces
+  local interfaces=()
+  while IFS= read -r interface; do
+    interfaces+=("\"$interface\"")
+  done < <(ip -o link show | awk -F': ' '{print $2}' | grep -v lo)
+
+  local interfaces_json
+  interfaces_json="[$(
+    IFS=','
+    echo "${interfaces[*]}"
+  )]"
+  network_info+=("\"interfaces\": $interfaces_json")
+
+  local IFS=','
+  echo "{${network_info[*]}}"
+}
+
+get_wsl_interop_info() {
+  local interop_info=()
+
+  # Interop enabled status
+  local interop_enabled="false"
+  if [[ -n "${WSL_INTEROP:-}" ]] || command -v cmd.exe >/dev/null 2>&1; then
+    interop_enabled="true"
+  fi
+  interop_info+=("\"enabled\": $interop_enabled")
+
+  # Windows PATH integration
+  local windows_path_integrated="false"
+  if echo "$PATH" | grep -q "/mnt/c/"; then
+    windows_path_integrated="true"
+  fi
+  interop_info+=("\"windows_path_integrated\": $windows_path_integrated")
+
+  # Available Windows commands
+  local windows_commands=()
+  local common_windows_commands=("cmd.exe" "powershell.exe" "notepad.exe" "explorer.exe")
+
+  for cmd in "${common_windows_commands[@]}"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      windows_commands+=("\"$cmd\"")
+    fi
+  done
+
+  local commands_json
+  commands_json="[$(
+    IFS=','
+    echo "${windows_commands[*]}"
+  )]"
+  interop_info+=("\"available_commands\": $commands_json")
+
+  local IFS=','
+  echo "{${interop_info[*]}}"
+}
+
+# --- Performance Monitoring and System Health Diagnostics ---
+get_system_health() {
+  local check_type="${1:-basic}" # basic, detailed, performance
+  local format="${2:-json}"      # json, text, summary
+
+  case "$check_type" in
+  "basic")
+    get_basic_system_health "$format"
+    ;;
+  "detailed")
+    get_detailed_system_health "$format"
+    ;;
+  "performance")
+    get_performance_metrics "$format"
+    ;;
+  *)
+    echo "Invalid check type: $check_type" >&2
+    return 1
+    ;;
+  esac
+}
+
+get_basic_system_health() {
+  local format="$1"
+  local health_data=()
+
+  # System load
+  local load_avg
+  if [[ -f /proc/loadavg ]]; then
+    load_avg=$(cut -d' ' -f1-3 /proc/loadavg)
+  else
+    load_avg="unknown"
+  fi
+  health_data+=("\"load_average\": \"$load_avg\"")
+
+  # Memory usage
+  local memory_usage
+  memory_usage=$(get_memory_usage_percentage)
+  health_data+=("\"memory_usage_percent\": $memory_usage")
+
+  # Disk usage - pass HOME as default argument
+  local disk_usage
+  disk_usage=$(get_disk_usage_percentage "$HOME")
+  health_data+=("\"disk_usage_percent\": $disk_usage")
+
+  # System uptime
+  local uptime_seconds
+  if [[ -f /proc/uptime ]]; then
+    uptime_seconds=$(cut -d' ' -f1 /proc/uptime | cut -d'.' -f1)
+  else
+    uptime_seconds="0"
+  fi
+  health_data+=("\"uptime_seconds\": $uptime_seconds")
+
+  # Process count
+  local process_count
+  process_count=$(ps aux | wc -l)
+  health_data+=("\"process_count\": $process_count")
+
+  # System health score (0-100)
+  local health_score
+  health_score=$(calculate_system_health_score "$memory_usage" "$disk_usage" "$load_avg")
+  health_data+=("\"health_score\": $health_score")
+
+  case "$format" in
+  "json")
+    local IFS=','
+    echo "{${health_data[*]}}"
+    ;;
+  "text")
+    echo "System Health Summary:"
+    echo "  Load Average: $load_avg"
+    echo "  Memory Usage: ${memory_usage}%"
+    echo "  Disk Usage: ${disk_usage}%"
+    echo "  Uptime: $(format_uptime "$uptime_seconds")"
+    echo "  Processes: $process_count"
+    echo "  Health Score: ${health_score}/100"
+    ;;
+  "summary")
+    echo "$health_score"
+    ;;
+  esac
+}
+
+get_detailed_system_health() {
+  local format="$1"
+  local detailed_data=()
+
+  # Get basic health data
+  local basic_health
+  basic_health=$(get_basic_system_health "json")
+  detailed_data+=("\"basic\": $basic_health")
+
+  # CPU information
+  local cpu_info
+  cpu_info=$(get_cpu_information)
+  detailed_data+=("\"cpu\": $cpu_info")
+
+  # Memory breakdown
+  local memory_info
+  memory_info=$(get_memory_breakdown)
+  detailed_data+=("\"memory\": $memory_info")
+
+  # Disk information
+  local disk_info
+  disk_info=$(get_disk_information)
+  detailed_data+=("\"storage\": $disk_info")
+
+  # Network status - pass format argument
+  local network_info
+  network_info=$(get_network_status "$format")
+  detailed_data+=("\"network\": $network_info")
+
+  # System services status
+  local services_info
+  services_info=$(get_critical_services_status "json")
+  detailed_data+=("\"services\": $services_info")
+
+  case "$format" in
+  "json")
+    local IFS=','
+    echo "{${detailed_data[*]}}"
+    ;;
+  "text")
+    echo "Detailed System Health Report:"
+    echo "================================"
+    get_basic_system_health "text"
+    echo ""
+    echo "CPU Information:"
+    get_cpu_information "text"
+    echo ""
+    echo "Memory Breakdown:"
+    get_memory_breakdown "text"
+    echo ""
+    echo "Storage Information:"
+    get_disk_information "text"
+    ;;
+  esac
+}
+
+calculate_system_health_score() {
+  local memory_usage="$1"
+  local disk_usage="$2"
+  local load_avg="$3"
+
+  local score=100
+
+  # Memory usage impact (0-40 points deduction)
+  local memory_penalty
+  memory_penalty=$(echo "scale=0; $memory_usage * 0.4" | bc -l 2>/dev/null || echo "0")
+  score=$((score - memory_penalty))
+
+  # Disk usage impact (0-30 points deduction)
+  local disk_penalty
+  disk_penalty=$(echo "scale=0; $disk_usage * 0.3" | bc -l 2>/dev/null || echo "0")
+  score=$((score - disk_penalty))
+
+  # Load average impact (0-30 points deduction)
+  local load_1min
+  load_1min=$(echo "$load_avg" | cut -d' ' -f1)
+  local cpu_cores
+  cpu_cores=$(nproc 2>/dev/null || echo "1")
+
+  local load_ratio
+  load_ratio=$(echo "scale=2; $load_1min / $cpu_cores" | bc -l 2>/dev/null || echo "0")
+
+  if (($(echo "$load_ratio > 1.0" | bc -l 2>/dev/null || echo "0"))); then
+    local load_penalty
+    load_penalty=$(echo "scale=0; ($load_ratio - 1) * 30" | bc -l 2>/dev/null || echo "0")
+    score=$((score - load_penalty))
+  fi
+
+  # Ensure score doesn't go below 0
+  [[ $score -lt 0 ]] && score=0
+
+  echo "$score"
+}
+
+get_cpu_information() {
+  local format="${1:-json}"
+  local cpu_data=()
+
+  # CPU model and count
+  local cpu_model cpu_cores cpu_threads
+  if [[ -f /proc/cpuinfo ]]; then
+    cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d':' -f2 | sed 's/^ *//')
+    cpu_cores=$(grep "cpu cores" /proc/cpuinfo | head -1 | cut -d':' -f2 | sed 's/^ *//')
+    cpu_threads=$(grep "processor" /proc/cpuinfo | wc -l)
+  else
+    cpu_model="unknown"
+    cpu_cores="unknown"
+    cpu_threads="unknown"
+  fi
+
+  # CPU usage
+  local cpu_usage
+  cpu_usage=$(get_system_resources "cpu_usage")
+
+  # CPU frequency
+  local cpu_freq="unknown"
+  if [[ -f /proc/cpuinfo ]]; then
+    cpu_freq=$(grep "cpu MHz" /proc/cpuinfo | head -1 | cut -d':' -f2 | sed 's/^ *//' | cut -d'.' -f1)
+    [[ -n "$cpu_freq" ]] && cpu_freq="${cpu_freq} MHz"
+  fi
+
+  case "$format" in
+  "json")
+    cpu_data+=("\"model\": \"$cpu_model\"")
+    cpu_data+=("\"cores\": \"$cpu_cores\"")
+    cpu_data+=("\"threads\": \"$cpu_threads\"")
+    cpu_data+=("\"usage_percent\": \"$cpu_usage\"")
+    cpu_data+=("\"frequency\": \"$cpu_freq\"")
+
+    local IFS=','
+    echo "{${cpu_data[*]}}"
+    ;;
+  "text")
+    echo "  Model: $cpu_model"
+    echo "  Cores: $cpu_cores"
+    echo "  Threads: $cpu_threads"
+    echo "  Usage: ${cpu_usage}%"
+    echo "  Frequency: $cpu_freq"
+    ;;
+  esac
+}
+
+get_memory_breakdown() {
+  local format="${1:-json}"
+
+  if [[ ! -f /proc/meminfo ]]; then
+    echo "{\"error\": \"Memory information not available\"}"
+    return 1
+  fi
+
+  local mem_total mem_free mem_available mem_buffers mem_cached mem_swap_total mem_swap_free
+  mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+  mem_free=$(awk '/MemFree:/ {print $2}' /proc/meminfo)
+  mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+  mem_buffers=$(awk '/Buffers:/ {print $2}' /proc/meminfo)
+  mem_cached=$(awk '/^Cached:/ {print $2}' /proc/meminfo)
+  mem_swap_total=$(awk '/SwapTotal:/ {print $2}' /proc/meminfo)
+  mem_swap_free=$(awk '/SwapFree:/ {print $2}' /proc/meminfo)
+
+  # Convert to MB for readability
+  local mem_total_mb mem_free_mb mem_available_mb mem_buffers_mb mem_cached_mb
+  local mem_swap_total_mb mem_swap_free_mb
+
+  mem_total_mb=$((mem_total / 1024))
+  mem_free_mb=$((mem_free / 1024))
+  mem_available_mb=${mem_available:=0}
+  mem_available_mb=$((mem_available_mb / 1024))
+  mem_buffers_mb=$((mem_buffers / 1024))
+  mem_cached_mb=$((mem_cached / 1024))
+  mem_swap_total_mb=$((mem_swap_total / 1024))
+  mem_swap_free_mb=$((mem_swap_free / 1024))
+
+  local mem_used_mb=$((mem_total_mb - mem_available_mb))
+  local mem_swap_used_mb=$((mem_swap_total_mb - mem_swap_free_mb))
+
+  case "$format" in
+  "json")
+    cat <<EOF
+{
+  "total_mb": $mem_total_mb,
+  "used_mb": $mem_used_mb,
+  "free_mb": $mem_free_mb,
+  "available_mb": $mem_available_mb,
+  "buffers_mb": $mem_buffers_mb,
+  "cached_mb": $mem_cached_mb,
+  "swap": {
+    "total_mb": $mem_swap_total_mb,
+    "used_mb": $mem_swap_used_mb,
+    "free_mb": $mem_swap_free_mb
+  }
+}
+EOF
+    ;;
+  "text")
+    echo "  Total: ${mem_total_mb}MB"
+    echo "  Used: ${mem_used_mb}MB"
+    echo "  Available: ${mem_available_mb}MB"
+    echo "  Buffers: ${mem_buffers_mb}MB"
+    echo "  Cached: ${mem_cached_mb}MB"
+    echo "  Swap Total: ${mem_swap_total_mb}MB"
+    echo "  Swap Used: ${mem_swap_used_mb}MB"
+    ;;
+  esac
+}
+
+get_disk_information() {
+  local format="${1:-json}"
+  # Remove unused disk_data array
+  local filesystems=()
+
+  while IFS= read -r line; do
+    local filesystem size used avail use_percent mount_point
+    read -r filesystem size used avail use_percent mount_point <<<"$line"
+
+    # Skip special filesystems
+    case "$mount_point" in
+    /proc | /sys | /dev | /run | /tmp) continue ;;
+    /snap/*) continue ;;
+    esac
+
+    # Skip if mount point is empty or device is tmpfs
+    [[ -z "$mount_point" ]] && continue
+    [[ "$filesystem" == "tmpfs" ]] && continue
+
+    local fs_info="{\"device\": \"$filesystem\", \"mount_point\": \"$mount_point\", \"size\": \"$size\", \"used\": \"$used\", \"available\": \"$avail\", \"usage_percent\": \"${use_percent%\%}\"}"
+    filesystems+=("$fs_info")
+
+  done < <(df -h 2>/dev/null | tail -n +2)
+
+  case "$format" in
+  "json")
+    local IFS=','
+    echo "{\"filesystems\": [${filesystems[*]}]}"
+    ;;
+  "text")
+    echo "  Mounted Filesystems:"
+    df -h 2>/dev/null | grep -E '^/dev|^[A-Z]:' | while read -r line; do
+      echo "    $line"
+    done
+    ;;
+  esac
+}
+
+# Fix function that references arguments but none are passed
+get_network_status() {
+  # Accepts an optional format argument: json (default) or text.
+  local format="${1:-json}"
+
+  # Network interfaces
+  local interfaces=()
+  for netdev in /sys/class/net/*; do
+    local interface
+    interface=$(basename "$netdev")
+    [[ "$interface" == "lo" ]] && continue
+    local state
+    state=$(cat "$netdev/operstate" 2>/dev/null || echo "unknown")
+    interfaces+=("{\"name\": \"$interface\", \"state\": \"$state\"}")
+  done
+
+  # Internet connectivity test
+  local internet_status="false"
+  if timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+    internet_status="true"
+  fi
+
+  # DNS resolution test
+  local dns_status="false"
+  if timeout 5 nslookup google.com >/dev/null 2>&1; then
+    dns_status="true"
+  fi
+
+  case "$format" in
+  "json")
+    local interfaces_json
+    local IFS=','
+    interfaces_json="[${interfaces[*]}]"
+
+    cat <<EOF
+{
+  "interfaces": $interfaces_json,
+  "internet_connectivity": $internet_status,
+  "dns_resolution": $dns_status
+}
+EOF
+    ;;
+  "text")
+    echo "  Network Interfaces:"
+    for interface_info in "${interfaces[@]}"; do
+      local name state
+      name=$(echo "$interface_info" | grep -o '"name": "[^"]*"' | cut -d'"' -f4)
+      state=$(echo "$interface_info" | grep -o '"state": "[^"]*"' | cut -d'"' -f4)
+      echo "    $name: $state"
+    done
+    echo "  Internet: $internet_status"
+    echo "  DNS: $dns_status"
+    ;;
+  esac
+}
+
+get_critical_services_status() {
+  local format="${1:-json}"
+  local services=("ssh" "systemd-resolved" "networkd" "cron")
+  local service_statuses=()
+
+  # Only check if systemd is available
+  if ! command -v systemctl >/dev/null 2>&1; then
+    case "$format" in
+    "json") echo "{\"error\": \"systemctl not available\"}" ;;
+    "text") echo "  Service status checking not available (no systemctl)" ;;
+    esac
+    return 0
+  fi
+
+  for service in "${services[@]}"; do
+    local status="unknown"
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+      status="active"
+    elif systemctl is-enabled --quiet "$service" 2>/dev/null; then
+      status="inactive"
+    else
+      status="disabled"
+    fi
+
+    service_statuses+=("{\"name\": \"$service\", \"status\": \"$status\"}")
+  done
+
+  case "$format" in
+  "json")
+    local IFS=','
+    echo "{\"services\": [${service_statuses[*]}]}"
+    ;;
+  "text")
+    echo "  Critical Services:"
+    for service_info in "${service_statuses[@]}"; do
+      local name status
+      name=$(echo "$service_info" | grep -o '"name": "[^"]*"' | cut -d'"' -f4)
+      status=$(echo "$service_info" | grep -o '"status": "[^"]*"' | cut -d'"' -f4)
+      echo "    $name: $status"
+    done
+    ;;
+  esac
+}
+
+format_uptime() {
+  local seconds="$1"
+  local days hours minutes
+
+  days=$((seconds / 86400))
+  hours=$(((seconds % 86400) / 3600))
+  minutes=$(((seconds % 3600) / 60))
+
+  if [[ $days -gt 0 ]]; then
+    echo "${days}d ${hours}h ${minutes}m"
+  elif [[ $hours -gt 0 ]]; then
+    echo "${hours}h ${minutes}m"
+  else
+    echo "${minutes}m"
+  fi
+}
+
 detect_wsl_environment() {
   local wsl_indicators=0
 
@@ -103,7 +807,7 @@ detect_desktop_environment() {
     ((desktop_indicators++))
   fi
 
-  # Method 3: Desktop-specific processes
+  # Method 3: Desktop-specific processes - use grep -c instead of grep | wc -l
   if pgrep -x "gnome-shell\|kde-plasma\|xfce4-session\|lxsession" >/dev/null 2>&1; then
     ((desktop_indicators++))
   fi
@@ -596,11 +1300,21 @@ get_distribution_info() {
   distro_version=$(get_distribution_version)
   distro_codename=$(get_distribution_codename)
 
-  # LTS status for Ubuntu
-  local is_lts="false"
-  if [[ "$distro_id" == "ubuntu" ]]; then
-    is_lts=$(is_ubuntu_lts "$distro_version")
-  fi
+  # Ubuntu-specific information
+  local ubuntu_info
+  ubuntu_info=$(get_ubuntu_specific_info)
+
+  # LTS status
+  local is_lts
+  is_lts=$(is_ubuntu_lts "$distro_version")
+
+  # Support status
+  local support_status
+  support_status=$(get_ubuntu_support_status "$distro_version")
+
+  # Package manager information
+  local package_managers
+  package_managers=$(get_available_package_managers)
 
   case "$format" in
   "json")
@@ -612,16 +1326,129 @@ get_distribution_info() {
     "version": "$distro_version",
     "codename": "$distro_codename"
   },
-  "is_lts": $is_lts
+  "ubuntu": $ubuntu_info,
+  "is_lts": $is_lts,
+  "support_status": "$support_status",
+  "package_managers": $package_managers
 }
 EOF
     ;;
   "text")
     echo "Distribution: $distro_name $distro_version ($distro_codename)"
-    [[ "$distro_id" == "ubuntu" ]] && echo "Ubuntu LTS: $is_lts"
+    echo "Ubuntu LTS: $is_lts"
+    echo "Support Status: $support_status"
     ;;
   "version-only")
     echo "$distro_version"
     ;;
   esac
+}
+
+get_ubuntu_specific_info() {
+  local ubuntu_info=()
+
+  # Check if this is actually Ubuntu or derivative
+  local is_ubuntu="false"
+  local ubuntu_derivative=""
+
+  if [[ -f /etc/os-release ]]; then
+    local id_like
+    id_like=$(grep "^ID_LIKE=" /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
+    if grep -q "^ID=ubuntu" /etc/os-release; then
+      is_ubuntu="true"
+    elif echo "$id_like" | grep -q "ubuntu"; then
+      is_ubuntu="false"
+      ubuntu_derivative=$(grep "^ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"')
+    fi
+  fi
+
+  ubuntu_info+=("\"is_ubuntu\": $is_ubuntu")
+  ubuntu_info+=("\"derivative\": \"$ubuntu_derivative\"")
+
+  # Ubuntu version classification
+  local version
+  version=$(get_distribution_version)
+  local version_class
+  version_class=$(classify_ubuntu_version "$version")
+  ubuntu_info+=("\"version_class\": \"$version_class\"")
+
+  # Architecture
+  local architecture
+  architecture=$(dpkg --print-architecture 2>/dev/null || uname -m)
+  ubuntu_info+=("\"architecture\": \"$architecture\"")
+
+  # Kernel information
+  local kernel_version
+  kernel_version=$(uname -r)
+  ubuntu_info+=("\"kernel_version\": \"$kernel_version\"")
+
+  local IFS=','
+  echo "{${ubuntu_info[*]}}"
+}
+
+classify_ubuntu_version() {
+  local version="$1"
+
+  case "$version" in
+  "24.04" | "24.10") echo "current" ;;
+  "22.04" | "22.10") echo "recent" ;;
+  "20.04" | "20.10") echo "supported" ;;
+  "18.04" | "18.10") echo "legacy" ;;
+  *) echo "unknown" ;;
+  esac
+}
+
+get_available_package_managers() {
+  local managers=()
+
+  # Check for various package managers
+  if command -v apt >/dev/null 2>&1; then
+    managers+=("\"apt\"")
+  fi
+
+  if command -v snap >/dev/null 2>&1; then
+    managers+=("\"snap\"")
+  fi
+
+  if command -v flatpak >/dev/null 2>&1; then
+    managers+=("\"flatpak\"")
+  fi
+
+  if command -v dpkg >/dev/null 2>&1; then
+    managers+=("\"dpkg\"")
+  fi
+
+  if command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1; then
+    managers+=("\"pip\"")
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    managers+=("\"npm\"")
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    managers+=("\"homebrew\"")
+  fi
+
+  local IFS=','
+  echo "[${managers[*]}]"
+}
+
+# Enhanced Ubuntu version function for backward compatibility
+get_ubuntu_version() {
+  local dist_info
+  dist_info=$(get_distribution_info "version-only")
+
+  # Handle non-Ubuntu distributions
+  local distro_id
+  distro_id=$(get_distribution_id)
+
+  if [[ "$distro_id" != "ubuntu" ]]; then
+    echo "non-ubuntu"
+  elif [[ "$dist_info" == "unknown" ]]; then
+    echo "unknown"
+  else
+    echo "$dist_info"
+  fi
 }
