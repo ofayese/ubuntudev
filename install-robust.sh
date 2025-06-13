@@ -10,7 +10,8 @@ readonly VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-readonly LOGFILE="/var/log/ubuntu-dev-tools.log"
+# Use user-accessible log location instead of system directory
+readonly LOGFILE="$HOME/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools-robust.log"
 readonly STATE_FILE="$HOME/.ubuntu-devtools-robust.state"
 readonly TIMEOUT_NETWORK=30
 readonly TIMEOUT_PACKAGE=600
@@ -45,7 +46,12 @@ handle_error() {
     local line_number=$2
     local command="$3"
 
-    log_error "Error at line $line_number: $command (exit code: $exit_code)"
+    # Safe error logging - fallback to echo if logging not ready
+    if command -v log_error >/dev/null 2>&1; then
+        log_error "Error at line $line_number: $command (exit code: $exit_code)"
+    else
+        echo "[ERROR] Error at line $line_number: $command (exit code: $exit_code)" >&2
+    fi
 
     # Offer recovery options
     if [[ -t 0 ]]; then # Interactive terminal
@@ -62,15 +68,29 @@ handle_error() {
         2) return 0 ;; # Continue execution for retry
         3) rollback_installation && exit 1 ;;
         4) exit $exit_code ;;
-        *) log_warning "Continuing with next component..." ;;
+        *)
+            if command -v log_warning >/dev/null 2>&1; then
+                log_warning "Continuing with next component..."
+            else
+                echo "[WARN] Continuing with next component..." >&2
+            fi
+            ;;
         esac
     else
-        log_warning "Non-interactive mode: continuing with next component"
+        if command -v log_warning >/dev/null 2>&1; then
+            log_warning "Non-interactive mode: continuing with next component"
+        else
+            echo "[WARN] Non-interactive mode: continuing with next component" >&2
+        fi
     fi
 }
 
 handle_interrupt() {
-    log_warning "Installation interrupted by user"
+    if command -v log_warning >/dev/null 2>&1; then
+        log_warning "Installation interrupted by user"
+    else
+        echo "[WARN] Installation interrupted by user" >&2
+    fi
     save_installation_state
     cleanup_on_exit
     exit 130
@@ -248,8 +268,14 @@ install_with_network_retry() {
 
 # Main installation logic
 main() {
-    setup_error_handling
+    # Ensure log directory exists first
+    mkdir -p "$(dirname "$LOGFILE")"
+
+    # Initialize logging before error handling
     init_logging "$LOGFILE"
+
+    # Now set up error handling (which uses logging)
+    setup_error_handling
 
     log_info "Starting robust Ubuntu development environment installation"
     log_info "Version: $VERSION"
