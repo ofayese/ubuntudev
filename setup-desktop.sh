@@ -4,8 +4,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
 source "$SCRIPT_DIR/util-log.sh"
+# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
 source "$SCRIPT_DIR/util-install.sh"
+# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
 source "$SCRIPT_DIR/util-env.sh"
 
 # Constants and configuration
@@ -16,6 +19,7 @@ ROLLBACK_DIR="$STATE_DIR/backups"
 DOWNLOAD_DIR="/tmp/desktop-setup-downloads"
 
 # Default settings
+# shellcheck disable=SC2034  # VERBOSE is used in command line parsing and reserved for future logging enhancement
 VERBOSE=false
 FORCE_REINSTALL=false
 AUTO_ROLLBACK=false
@@ -194,7 +198,8 @@ EOF
 update_component_state() {
   local category="$1"
   local status="$2"
-  local timestamp="$(date +%s)"
+  local timestamp
+  timestamp="$(date +%s)"
 
   # Remove existing entry
   if [[ -f "$STATE_FILE" ]]; then
@@ -222,7 +227,8 @@ is_component_installed() {
 # Create rollback point
 create_rollback_point() {
   local category="$1"
-  local rollback_point="$ROLLBACK_DIR/${category}_$(date +%Y%m%d_%H%M%S)"
+  local rollback_point
+  rollback_point="$ROLLBACK_DIR/${category}_$(date +%Y%m%d_%H%M%S)"
 
   log_info "Creating rollback point for $category..."
   mkdir -p "$rollback_point"
@@ -350,7 +356,8 @@ setup_secure_downloads() {
 secure_download() {
   local url="$1"
   local expected_checksum="${2:-}"
-  local output_file="$DOWNLOAD_DIR/$(basename "$url")"
+  local output_file
+  output_file="$DOWNLOAD_DIR/$(basename "$url")"
 
   log_info "Securely downloading: $(basename "$url")"
 
@@ -730,6 +737,7 @@ main() {
       shift
       ;;
     --verbose)
+      # shellcheck disable=SC2034  # VERBOSE is reserved for future logging enhancement
       VERBOSE=true
       shift
       ;;
