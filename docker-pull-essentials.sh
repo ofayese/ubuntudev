@@ -47,7 +47,9 @@ TIMEOUT="${DOCKER_PULL_TIMEOUT:-${DEFAULT_TIMEOUT}}"
 RETRIES="${DOCKER_PULL_RETRIES:-${DEFAULT_RETRIES}}"
 PARALLEL="${DOCKER_PULL_PARALLEL:-${DEFAULT_PARALLEL}}"
 LOG_FILE="${DEFAULT_LOG_FILE}"
+# shellcheck disable=SC2034  # These may be used in future security enhancements
 ENABLE_CONTENT_TRUST="${DOCKER_CONTENT_TRUST:-false}"
+# shellcheck disable=SC2034  # These may be used in future security enhancements
 VULNERABILITY_SCAN="${ENABLE_VULN_SCAN:-false}"
 ALLOWED_REGISTRIES="${DOCKER_ALLOWED_REGISTRIES:-}"
 
@@ -93,9 +95,11 @@ TEMP_DIR="$(mktemp -d)"
 readonly TEMP_DIR
 readonly PULL_QUEUE="${TEMP_DIR}/pull_queue"
 readonly RESULTS_FILE="${TEMP_DIR}/results"
+# shellcheck disable=SC2034  # Reserved for future state tracking
 readonly STATE_FILE="${TEMP_DIR}/pull_state.json"
 readonly COMPLETED_FILE="${TEMP_DIR}/completed_images"
 readonly FAILED_FILE="${TEMP_DIR}/failed_images"
+# shellcheck disable=SC2034  # Reserved for future security validation
 readonly SECURITY_LOG="${TEMP_DIR}/security_validation.log"
 readonly QUEUE_LOCK="${TEMP_DIR}/queue.lock"
 readonly CONFIG_CACHE="${TEMP_DIR}/config.cache"
@@ -377,6 +381,7 @@ load_configuration() {
   # Check if we have a valid cached version
   if [[ -f "${cached_config}" ]] && [[ "${cached_config}" -nt "${config_file}" ]]; then
     log_info "Using cached configuration from: ${cached_config}"
+    # shellcheck disable=SC1090  # Dynamic config file sourcing
     source "${cached_config}"
     return 0
   fi
@@ -386,11 +391,13 @@ load_configuration() {
   # Check if yq is available for YAML parsing
   if command -v yq >/dev/null 2>&1; then
     if parse_yaml_config_yq "${config_file}" "${cached_config}"; then
+      # shellcheck disable=SC1090  # Dynamic config file sourcing
       source "${cached_config}"
       return 0
     fi
   elif command -v python3 >/dev/null 2>&1; then
     if parse_yaml_config_python "${config_file}" "${cached_config}"; then
+      # shellcheck disable=SC1090  # Dynamic config file sourcing
       source "${cached_config}"
       return 0
     fi
@@ -437,7 +444,8 @@ parse_yaml_config_python() {
   local config_file="$1"
 
   # Python script to parse YAML
-  local py_script=$(
+  local py_script
+  py_script=$(
     cat <<'EOF'
 import sys
 import yaml
@@ -529,7 +537,7 @@ EOF
 build_image_list() {
   # Temporary file for image list
   local image_list="${TEMP_DIR}/image_list"
-  >"${image_list}"
+  true >"${image_list}"
 
   # Try to load from configuration file
   if load_configuration "${CONFIG_FILE}"; then
@@ -619,8 +627,8 @@ validate_all_images() {
 
   local valid_list="${TEMP_DIR}/valid_images"
   local invalid_list="${TEMP_DIR}/invalid_images"
-  >"${valid_list}"
-  >"${invalid_list}"
+  true >"${valid_list}"
+  true >"${invalid_list}"
 
   local validation_count=0
 
@@ -651,8 +659,10 @@ validate_all_images() {
   echo # New line after progress
 
   # Process results
-  local valid_count=$(wc -l <"${valid_list}" 2>/dev/null || echo 0)
-  local invalid_count=$(wc -l <"${invalid_list}" 2>/dev/null || echo 0)
+  local valid_count
+  local invalid_count
+  valid_count=$(wc -l <"${valid_list}" 2>/dev/null || echo 0)
+  invalid_count=$(wc -l <"${invalid_list}" 2>/dev/null || echo 0)
 
   log_info "Validation completed: ${valid_count} valid, ${invalid_count} invalid"
 
@@ -774,7 +784,7 @@ pull_image() {
         ;;
       "AUTH")
         # Circuit breaker for auth failures
-        echo "$(date +%s)" >"${circuit_breaker_file}"
+        date +%s >"${circuit_breaker_file}"
         log_error "Authentication error for ${display_name}, opening circuit breaker"
         rm -f "${TEMP_DIR}/pull_active"
         return ${exit_code}
@@ -788,7 +798,7 @@ pull_image() {
       if [[ ${attempt} -eq ${max_attempts} ]]; then
         log_error "Failed to pull ${display_name} after ${max_attempts} attempts (${error_type})"
         # Set circuit breaker for repeated failures
-        echo "$(date +%s)" >"${circuit_breaker_file}"
+        date +%s >"${circuit_breaker_file}"
         rm -f "${TEMP_DIR}/pull_active"
         return ${exit_code}
       else
@@ -818,13 +828,12 @@ pull_worker() {
   log_debug "Worker ${worker_id} starting"
 
   while true; do
-    local line=""
-
     # Get next item from queue with file locking
-    (
+    local line
+    line=$(
       flock -x 200
       if [[ -s "${queue_file}" ]]; then
-        line=$(head -n1 "${queue_file}")
+        head -n1 "${queue_file}"
         # Remove the processed line
         sed -i '1d' "${queue_file}"
       fi

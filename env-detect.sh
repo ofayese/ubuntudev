@@ -76,7 +76,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Source the environment utility with error handling
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UTIL_ENV_PATH="$SCRIPT_DIR/util-env.sh"
 
 # Validate utility file exists and is readable
@@ -97,6 +98,7 @@ UTIL_LOG_PATH="$SCRIPT_DIR/util-log.sh"
 LOGGING_AVAILABLE=false
 
 if [[ -f "$UTIL_LOG_PATH" ]] && [[ -r "$UTIL_LOG_PATH" ]]; then
+    # shellcheck disable=SC1090  # Dynamic utility sourcing
     if source "$UTIL_LOG_PATH" 2>/dev/null; then
         LOGGING_AVAILABLE=true
         # Initialize logging if available
@@ -137,6 +139,7 @@ log_debug "Script directory: $SCRIPT_DIR"
 log_debug "Utility path: $UTIL_ENV_PATH"
 
 log_debug "Loading environment utilities"
+# shellcheck disable=SC1090  # Dynamic utility sourcing
 if ! source "$UTIL_ENV_PATH"; then
     log_error "Failed to load utility functions from $UTIL_ENV_PATH"
     echo "Error: Failed to load utility functions from $UTIL_ENV_PATH" >&2

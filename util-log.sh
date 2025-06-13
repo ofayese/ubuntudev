@@ -16,6 +16,7 @@ readonly LOG_BUFFER_SIZE=100
 readonly LOG_FLUSH_INTERVAL=5
 declare -a LOG_BUFFER=()
 declare LOG_BUFFER_COUNT=0
+# shellcheck disable=SC2034  # Used in future async logging implementation
 declare LOG_LAST_FLUSH=0
 declare ASYNC_LOGGING="${ASYNC_LOGGING:-true}"
 declare LOG_FLUSHER_PID=""
@@ -562,6 +563,7 @@ sanitize_log_message() {
 
   # Replace ANSI escape sequences
   local sanitized
+  # shellcheck disable=SC2001  # Complex regex requires sed
   sanitized=$(echo "$input" | sed 's/\x1b\[[0-9;]*[mGKHF]//g')
 
   # Filter potentially dangerous characters
