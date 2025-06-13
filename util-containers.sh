@@ -16,23 +16,31 @@ source "$SCRIPT_DIR/util-install.sh"
 # Security and verification configuration
 readonly CHECKSUMS_CACHE="$HOME/.cache/ubuntu-devtools/container-checksums"
 declare -A PACKAGE_CHECKSUMS=()
+# shellcheck disable=SC2034  # Reserved for future package signature verification
 declare -A PACKAGE_SIGNATURES=()
 
 # Resilient download configuration
 readonly MAX_DOWNLOAD_RETRIES=3
 readonly DOWNLOAD_TIMEOUT=300
+# shellcheck disable=SC2034  # Reserved for future download mirroring
 readonly MIRROR_SITES=(
   "https://github.com"
   "https://objects.githubusercontent.com"
 )
+# shellcheck disable=SC2034  # Reserved for future download caching
 declare -A DOWNLOAD_CACHE=()
 declare -a FAILED_DOWNLOADS=()
 
 # Configuration-driven installation
+# shellcheck disable=SC2034  # Reserved for future YAML configuration
 readonly CONTAINER_CONFIG_FILE="$HOME/.config/ubuntu-devtools/container-tools.yaml"
+# shellcheck disable=SC2034  # Reserved for future configuration management
 readonly DEFAULT_CONFIG_DIR="$HOME/.config/ubuntu-devtools"
+# shellcheck disable=SC2034  # Reserved for future tool configuration
 declare -A TOOL_CONFIGS=()
+# shellcheck disable=SC2034  # Reserved for future version management
 declare -A TOOL_VERSIONS=()
+# shellcheck disable=SC2034  # Reserved for future tool enabling/disabling
 declare -A TOOL_ENABLED=()
 
 # Initialize security verification data

@@ -3,8 +3,11 @@ set -euo pipefail
 
 # Source utility modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091  # Dynamic utility sourcing
 source "$SCRIPT_DIR/util-log.sh"
+# shellcheck disable=SC1091  # Dynamic utility sourcing
 source "$SCRIPT_DIR/util-env.sh"
+# shellcheck disable=SC1091  # Dynamic utility sourcing
 source "$SCRIPT_DIR/util-install.sh"
 
 # Initialize logging
@@ -37,10 +40,10 @@ if ! powershell.exe -Command "Get-Command winget -ErrorAction SilentlyContinue" 
     log_info "2. Search for 'App Installer'"
     log_info "3. Install the App Installer package"
     log_info "4. Run this script again"
-    
+
     # Create a Windows shortcut to Microsoft Store App Installer page
     powershell.exe -Command "Start-Process 'ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1'" >/dev/null 2>&1 || true
-    
+
     finish_logging
     exit 1
 fi
@@ -49,10 +52,10 @@ stop_spinner "Checking for winget"
 # --- Check if Visual Studio Community is already installed ---
 log_info "Checking for existing installation of Visual Studio Community..."
 start_spinner "Checking for existing installation"
-if powershell.exe -Command "winget list --id Microsoft.VisualStudio.2022.Community 2>$null | Select-String 'Visual Studio'" >/dev/null 2>&1; then
+if powershell.exe -Command "winget list --id Microsoft.VisualStudio.2022.Community 2>\$null | Select-String 'Visual Studio'" >/dev/null 2>&1; then
     stop_spinner "Checking for existing installation"
     log_success "Visual Studio Community 2022 is already installed. Skipping installation."
-    
+
     # Check if Visual Studio needs updates
     log_info "Checking for Visual Studio updates..."
     if powershell.exe -Command "winget upgrade --id Microsoft.VisualStudio.2022.Community" | grep -q "No applicable update found"; then
@@ -61,7 +64,7 @@ if powershell.exe -Command "winget list --id Microsoft.VisualStudio.2022.Communi
         log_info "Updates available for Visual Studio Community."
         log_info "To update, run: 'powershell.exe -Command \"winget upgrade --id Microsoft.VisualStudio.2022.Community\"'"
     fi
-    
+
     finish_logging
     exit 0
 fi
@@ -72,7 +75,8 @@ log_info "Installing Visual Studio Community 2022 using winget..."
 start_spinner "Installing Visual Studio Community 2022"
 
 # Using PowerShell to run winget with better error handling
-powershell_install_cmd=$(cat <<'EOF'
+powershell_install_cmd=$(
+    cat <<'EOF'
 try {
     $process = Start-Process -FilePath "winget" -ArgumentList "install", "--exact", "--id", "Microsoft.VisualStudio.2022.Community", "--silent", "--accept-package-agreements", "--accept-source-agreements" -NoNewWindow -PassThru -Wait
     if ($process.ExitCode -eq 0) {
@@ -92,9 +96,9 @@ EOF
 if powershell.exe -Command "$powershell_install_cmd"; then
     stop_spinner "Installing Visual Studio Community 2022"
     log_success "Visual Studio Community installation completed via winget."
-    
+
     # Create a desktop shortcut with additional help
-    cat > ~/vs-community-setup-help.txt <<'EOF'
+    cat >~/vs-community-setup-help.txt <<'EOF'
 Visual Studio Community 2022 Installation Guide
 
 1. Visual Studio has been installed via winget but may require additional setup.
@@ -116,7 +120,7 @@ Visual Studio Community 2022 Installation Guide
 
 For issues, visit: https://learn.microsoft.com/en-us/visualstudio/install/troubleshooting-installation-issues
 EOF
-    
+
     log_info "Created help guide at: ~/vs-community-setup-help.txt"
 else
     stop_spinner "Installing Visual Studio Community 2022"

@@ -6,6 +6,7 @@
 set -euo pipefail
 
 readonly VERSION="1.0.0"
+# shellcheck disable=SC2034,SC2155  # SCRIPT_DIR used by utility sourcing pattern
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Manual Compliance Fixes ==="

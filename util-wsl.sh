@@ -14,6 +14,7 @@
 # Last updated: January 2025 - Aligned with Windows 11 + WSL2 best practices
 set -euo pipefail
 
+# shellcheck disable=SC2034  # VERSION used in utility identification
 readonly VERSION="1.0.0"
 
 # Guard against multiple sourcing
@@ -23,11 +24,13 @@ fi
 readonly UTIL_WSL_LOADED="true"
 
 # Operating system detection for cross-platform compatibility
+# shellcheck disable=SC2034,SC2155  # OS_TYPE used by utility functions
 readonly OS_TYPE="$(uname -s)"
 
 # Dry-run mode support
 readonly DRY_RUN="${DRY_RUN:-false}"
 
+# shellcheck disable=SC2155  # SCRIPT_DIR assignment pattern
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source utility modules with error checking

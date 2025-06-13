@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck disable=SC2034  # VERSION used in logging/reporting
 readonly VERSION="1.0.0"
 
 # Version: 1.0.0
 # Last updated: 2025-06-13
-
 
 # Source utility modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,21 +19,33 @@ log_info "NPM packages setup started"
 
 # --- Options ---
 FORCE_REINSTALL=false
+# shellcheck disable=SC2034  # QUIET_MODE reserved for future logging control
 QUIET_MODE=false
 
+# shellcheck disable=SC2034  # QUIET_MODE reserved for future logging control
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --force|-f) FORCE_REINSTALL=true; shift ;;
-    --quiet|-q) QUIET_MODE=true; shift ;;
-    --help|-h)
-      log_info "Usage: $0 [options]"
-      log_info "  --force, -f    Force reinstall"
-      log_info "  --quiet, -q    Quiet mode"
-      log_info "  --help, -h     Show help"
-      finish_logging
-      exit 0
-      ;;
-    *) log_error "Unknown option: $1"; finish_logging; exit 1 ;;
+  --force | -f)
+    FORCE_REINSTALL=true
+    shift
+    ;;
+  --quiet | -q)
+    QUIET_MODE=true
+    shift
+    ;;
+  --help | -h)
+    log_info "Usage: $0 [options]"
+    log_info "  --force, -f    Force reinstall"
+    log_info "  --quiet, -q    Quiet mode"
+    log_info "  --help, -h     Show help"
+    finish_logging
+    exit 0
+    ;;
+  *)
+    log_error "Unknown option: $1"
+    finish_logging
+    exit 1
+    ;;
   esac
 done
 

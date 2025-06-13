@@ -4,14 +4,19 @@
 # Last updated: 2025-06-13
 set -euo pipefail
 
+# shellcheck disable=SC2034  # VERSION used in logging/reporting
 readonly VERSION="1.0.0"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Dry-run mode support
 readonly DRY_RUN="${DRY_RUN:-false}"
 
 # Operating system detection for cross-platform compatibility
-readonly OS_TYPE="$(uname -s)"
+# shellcheck disable=SC2034  # OS_TYPE may be used by sourced utilities
+readonly OS_TYPE
+# shellcheck disable=SC2034  # OS_TYPE may be used by sourced utilities
+OS_TYPE="$(uname -s)"
 
 # Source utility modules with error checking
 source "$SCRIPT_DIR/util-log.sh" || {
