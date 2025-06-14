@@ -272,11 +272,14 @@ install_eza_from_github() {
     local temp_dir
     temp_dir=$(mktemp -d)
 
-    # Cleanup function
-    cleanup_temp() {
-        rm -rf "$temp_dir"
+    # Function to cleanup and exit
+    cleanup_and_exit() {
+        local exit_code=${1:-1}
+        if [[ -n "${temp_dir:-}" && -d "${temp_dir:-}" ]]; then
+            rm -rf "$temp_dir"
+        fi
+        return $exit_code
     }
-    trap cleanup_temp EXIT
 
     # Detect architecture
     local arch
@@ -286,6 +289,7 @@ install_eza_from_github() {
     "aarch64" | "arm64") arch="aarch64" ;;
     *)
         log_substep "Installing eza" "FAILED" "Unsupported architecture: $arch"
+        cleanup_and_exit 1
         return 1
         ;;
     esac
@@ -299,9 +303,11 @@ install_eza_from_github() {
         "$PACKAGE_TIMEOUT"; then
 
         log_substep "Installing eza" "SUCCESS"
+        cleanup_and_exit 0
         return 0
     else
         log_substep "Installing eza" "FAILED" "Download or installation failed"
+        cleanup_and_exit 1
         return 1
     fi
 }

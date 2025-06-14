@@ -93,23 +93,8 @@ _load_utility_modules() {
 _load_utility_modules
 
 # ------------------------------------------------------------------------------
-# Component to Script Mapping
+# Component to Script Mapping (defined in main function section)
 # ------------------------------------------------------------------------------
-
-# Map component names to their corresponding setup scripts
-declare -A SCRIPTS=(
-    ["devtools"]="setup-devtools-refactored.sh"
-    ["terminal"]="setup-terminal-enhancements.sh"
-    ["terminal-enhancements"]="setup-terminal-enhancements.sh"
-    ["desktop"]="setup-desktop.sh"
-    ["devcontainers"]="setup-devcontainers.sh"
-    ["dotnet-ai"]="setup-dotnet-ai.sh"
-    ["lang-sdks"]="setup-lang-sdks.sh"
-    ["vscommunity"]="setup-vscommunity.sh"
-    ["update-env"]="update-environment.sh"
-    ["node-python"]="setup-node-python.sh"
-    ["npm"]="setup-npm.sh"
-)
 
 # ------------------------------------------------------------------------------
 # Help and Usage Functions
@@ -405,8 +390,9 @@ execute_installation() {
 install_component() {
     local component="$1"
 
-    # Check if component script exists
-    local script_name="${SCRIPTS[$component]:-setup-$component.sh}"
+    # Get the script name for this component
+    local script_name
+    script_name="$(get_script_for_component "$component")"
     local script_path="$SCRIPT_DIR/$script_name"
 
     if [[ ! -f "$script_path" ]]; then
@@ -434,6 +420,25 @@ install_component() {
 # ------------------------------------------------------------------------------
 # Main Execution Function
 # ------------------------------------------------------------------------------
+
+# Re-declare component to script mapping to ensure it's available
+get_script_for_component() {
+    local component="$1"
+    case "$component" in
+    "devtools") echo "setup-devtools-refactored.sh" ;;
+    "terminal") echo "setup-terminal-enhancements.sh" ;;
+    "terminal-enhancements") echo "setup-terminal-enhancements.sh" ;;
+    "desktop") echo "setup-desktop.sh" ;;
+    "devcontainers") echo "setup-devcontainers.sh" ;;
+    "dotnet-ai") echo "setup-dotnet-ai.sh" ;;
+    "lang-sdks") echo "setup-lang-sdks.sh" ;;
+    "vscommunity") echo "setup-vscommunity.sh" ;;
+    "update-env") echo "update-environment.sh" ;;
+    "node-python") echo "setup-node-python.sh" ;;
+    "npm") echo "setup-npm.sh" ;;
+    *) echo "setup-${component}.sh" ;;
+    esac
+}
 
 main() {
     # Parse command line arguments
