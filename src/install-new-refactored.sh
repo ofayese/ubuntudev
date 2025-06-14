@@ -39,8 +39,8 @@ _init_script_environment() {
     os_type="$(uname -s)"
     readonly OS_TYPE="$os_type"
 
-    # Configuration variables
-    readonly DRY_RUN="${DRY_RUN:-false}"
+    # Configuration variables (DRY_RUN will be set after argument parsing)
+    DRY_RUN="${DRY_RUN:-false}"
     readonly DEBUG_MODE="${DEBUG_MODE:-false}"
 
     # Create necessary directories
@@ -205,6 +205,7 @@ parse_arguments() {
     done
 
     # Export parsed flags for use by other functions
+    readonly DRY_RUN
     readonly RESUME="$resume"
     readonly SHOW_GRAPH="$show_graph"
     readonly VALIDATE_ONLY="$validate_only"

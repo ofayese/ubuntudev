@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck disable=SC2034  # VERSION used in logging/reporting
+readonly VERSION="1.0.0"
+
+# Version: 1.0.0
+# Last updated: 2025-06-13
+
 # Source utility modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/util-log.sh"
-source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR/util-install.sh"
+source "$SCRIPT_DIR/util-log.sh" || {
+    echo "Failed to source util-log.sh"
+    exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+    echo "Failed to source util-env.sh"
+    exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+    echo "Failed to source util-install.sh"
+    exit 1
+}
 
-# Initialize logging
-init_logging
 log_info "Dotnet AI/ML setup started"
 
 # Detect environment
@@ -17,7 +30,7 @@ log_info "Environment detected: $ENV_TYPE"
 
 # --- DOTNET SDKs ---
 log_info "Installing .NET SDKs 8.0, 9.0..."
-start_spinner "Setting up Microsoft package repository"
+log_info "Setting up Microsoft package repository..."
 
 # Get Ubuntu version and add Microsoft package repo
 UBUNTU_VERSION=$(lsb_release -rs)
@@ -28,18 +41,15 @@ if wget -q "https://packages.microsoft.com/config/ubuntu/$UBUNTU_VERSION/package
         log_success "Microsoft package repository configured"
     else
         log_error "Failed to install Microsoft package repository"
-        finish_logging
         exit 1
     fi
 else
     log_error "Failed to download Microsoft package repository"
-    finish_logging
     exit 1
 fi
-stop_spinner "Setting up Microsoft package repository"
 
 # Install .NET SDKs with error handling
-start_spinner "Installing .NET SDKs"
+log_info "Installing .NET SDKs..."
 log_info "Installing .NET 8.0 SDK"
 if safe_apt_install dotnet-sdk-8.0; then
     log_success ".NET 8.0 SDK installed"
@@ -61,33 +71,28 @@ if sudo apt-get install -y dotnet-sdk-10.0 2>/dev/null; then
 else
     log_warning ".NET 10.0 SDK not available (may be in preview)"
 fi
-stop_spinner "Installing .NET SDKs"
 
 # --- PowerShell ---
 log_info "Installing PowerShell..."
-start_spinner "Installing PowerShell"
 safe_apt_install apt-transport-https software-properties-common
 if safe_apt_install powershell; then
     log_success "PowerShell installed successfully"
 else
     log_warning "Failed to install PowerShell"
 fi
-stop_spinner "Installing PowerShell"
 
 # --- Miniconda Setup ---
 log_info "Installing Miniconda for Python AI/ML stack..."
-start_spinner "Installing Python prerequisites"
+log_info "Installing Python prerequisites..."
 safe_apt_install python3 python3-pip python3-venv curl
-stop_spinner "Installing Python prerequisites"
 
-start_spinner "Installing Miniconda"
+log_info "Installing Miniconda..."
 # Check if Miniconda is already installed
 if [ -d "$HOME/miniconda" ]; then
     log_info "Miniconda is already installed, skipping installation"
 else
     cd /tmp || {
         log_error "Failed to change to /tmp directory"
-        finish_logging
         exit 1
     }
     if curl -s -o miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh; then
@@ -100,21 +105,17 @@ else
             log_success "Miniconda installed successfully"
         else
             log_error "Failed to install Miniconda"
-            finish_logging
             exit 1
         fi
         rm -f miniconda.sh
     else
         log_error "Failed to download Miniconda installer"
-        finish_logging
         exit 1
     fi
 fi
-stop_spinner "Installing Miniconda"
 
 # --- Python Packages for Data Science + AI ---
 log_info "Installing Python packages for ML and data science..."
-start_spinner "Installing Python data science packages"
 
 # Function to safely install pip packages
 install_pip_package() {
@@ -172,7 +173,6 @@ for package in "${optional_packages[@]}"; do
     install_pip_package "$package" || log_warning "Failed to install optional package: $package"
 done
 
-stop_spinner "Installing Python data science packages"
-
 log_success ".NET SDKs, PowerShell, and AI/ML toolchains installed!"
-finish_logging
+
+exit 0

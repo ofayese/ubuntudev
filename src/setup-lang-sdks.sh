@@ -80,8 +80,7 @@ validate_and_download() {
     return 0
 }
 
-# Initialize logging
-init_logging
+# Start logging
 log_info "Language SDKs setup started (v$VERSION, updated $LAST_UPDATED)"
 
 # Display dry-run mode notice if active
@@ -108,7 +107,6 @@ total_steps=${#SETUP_STEPS[@]}
 ((current_step++))
 log_info "[$current_step/$total_steps] Installing Rust via rustup..."
 show_progress "$current_step" "$total_steps" "Language SDKs Setup"
-start_spinner "Installing Rust"
 
 # Check if Rust is already installed
 if command -v rustc &>/dev/null && command -v cargo &>/dev/null; then
@@ -160,13 +158,10 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     fi
 done
 
-stop_spinner "Installing Rust"
-
 # --- JAVA / JVM via SDKMAN ---
 ((current_step++))
 log_info "[$current_step/$total_steps] Installing SDKMAN and JVM toolchain..."
 show_progress "$current_step" "$total_steps" "Language SDKs Setup"
-start_spinner "Installing SDKMAN"
 
 # Check if SDKMAN is already installed
 if [ -d "$HOME/.sdkman" ] && [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
@@ -198,16 +193,12 @@ else
             }
         else
             log_error "Failed to run the SDKMAN installer"
-            stop_spinner "Installing SDKMAN"
             rm -rf "$TEMP_DIR"
-            finish_logging
             exit 1
         fi
     else
         log_error "Failed to download and validate SDKMAN installer"
-        stop_spinner "Installing SDKMAN"
         rm -rf "$TEMP_DIR"
-        finish_logging
         exit 1
     fi
 
@@ -223,10 +214,7 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     fi
 done
 
-stop_spinner "Installing SDKMAN"
-
 # Install Java SDKs
-start_spinner "Installing Java SDKs"
 log_info "Installing Java SDKs..."
 
 # Function to install Java with version fallbacks
@@ -270,13 +258,10 @@ else
     log_warning "SDKMAN command 'sdk' not available, skipping default Java setup"
 fi
 
-stop_spinner "Installing Java SDKs"
-
 # --- HASKELL via GHCup ---
 ((current_step++))
 log_info "[$current_step/$total_steps] Installing Haskell via GHCup..."
 show_progress "$current_step" "$total_steps" "Language SDKs Setup"
-start_spinner "Installing Haskell"
 
 # Check if GHCup is already installed
 if [ -d "$HOME/.ghcup" ] && command -v ghc &>/dev/null; then
@@ -320,7 +305,6 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     fi
 done
 
-stop_spinner "Installing Haskell"
-
 log_success "Rust, Java (SDKMAN), and Haskell (GHCup) installed!"
-finish_logging
+
+exit 0

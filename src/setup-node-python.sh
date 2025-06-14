@@ -30,7 +30,8 @@ declare -A NETWORK_CONFIG=(
   ["user_agent"]="Ubuntu-DevTools-Setup/1.0"
 )
 
-init_logging
+# Start logging
+log_info "Node.js and Python setup started"
 
 # --- Detect if running in WSL ---
 detect_wsl
@@ -817,7 +818,6 @@ handle_exit() {
     log_info "You may need to run this script again after resolving any issues"
   fi
 
-  finish_logging
   exit $exit_code
 }
 

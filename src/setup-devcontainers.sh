@@ -8,13 +8,12 @@ source "$SCRIPT_DIR/util-env.sh"
 source "$SCRIPT_DIR/util-install.sh"
 source "$SCRIPT_DIR/util-containers.sh"
 
-# Initialize logging
-init_logging
+# Start logging (removed problematic init_logging call)
 log_info "Dev Containers setup started"
 
 # Detect environment using utility function
 ENV_TYPE=$(detect_environment)
-print_env_banner
+log_info "Environment detected: $ENV_TYPE"
 
 # Main logic based on environment
 if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
@@ -23,9 +22,9 @@ if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
   if ! check_docker; then
     log_error "Docker not running in Windows or not connected to WSL2"
     log_info "Please launch Docker Desktop in Windows and enable WSL integration"
-    
+
     # Create a file with instructions for the user
-    cat > ~/docker-desktop-instructions.txt <<'EOF'
+    cat >~/docker-desktop-instructions.txt <<'EOF'
 # Docker Desktop Setup Instructions for WSL2
 
 1. Install Docker Desktop for Windows if not already installed:
@@ -43,9 +42,8 @@ if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
 
 For more information, visit: https://docs.docker.com/desktop/wsl/
 EOF
-    
+
     log_info "Created setup instructions at: ~/docker-desktop-instructions.txt"
-    finish_logging
     exit 1
   fi
 
@@ -53,14 +51,13 @@ EOF
   if ! check_wsl_docker_integration; then
     log_error "WSL Docker integration validation failed"
     log_info "Attempting to fix Docker context..."
-    
+
     # Try to fix Docker context
     docker context use default >/dev/null 2>&1 || true
-    
+
     # Check again
     if ! check_wsl_docker_integration; then
       log_error "WSL Docker integration validation failed after attempted fix"
-      finish_logging
       exit 1
     else
       log_success "Successfully fixed Docker context"
@@ -71,7 +68,6 @@ else
   log_info "Installing Docker Desktop for Ubuntu Desktop..."
   if ! install_docker_desktop_linux; then
     log_error "Failed to install Docker Desktop for Linux"
-    finish_logging
     exit 1
   fi
 fi
@@ -80,4 +76,6 @@ fi
 setup_docker_user
 
 log_success "Docker Desktop setup complete. Please log out and log in again for group changes to apply"
-finish_logging
+
+# Exit successfully
+exit 0

@@ -9,12 +9,19 @@ readonly VERSION="1.0.0"
 
 # Source utility modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/util-log.sh"
-source "$SCRIPT_DIR/util-env.sh"
-source "$SCRIPT_DIR/util-install.sh"
+source "$SCRIPT_DIR/util-log.sh" || {
+  echo "Failed to source util-log.sh"
+  exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+  echo "Failed to source util-env.sh"
+  exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+  echo "Failed to source util-install.sh"
+  exit 1
+}
 
-# Initialize logging
-init_logging
 log_info "NPM packages setup started"
 
 # --- Options ---
@@ -38,12 +45,10 @@ while [[ $# -gt 0 ]]; do
     log_info "  --force, -f    Force reinstall"
     log_info "  --quiet, -q    Quiet mode"
     log_info "  --help, -h     Show help"
-    finish_logging
     exit 0
     ;;
   *)
     log_error "Unknown option: $1"
-    finish_logging
     exit 1
     ;;
   esac
@@ -51,7 +56,6 @@ done
 
 if ! command_exists npm; then
   log_error "npm is not installed. Please install Node.js + npm first"
-  finish_logging
   exit 1
 fi
 
@@ -151,4 +155,4 @@ log_info "  Global packages skipped: $GLOBAL_SKIPPED"
 log_info "  Local packages installed: $LOCAL_INSTALLED"
 log_info "  Local packages skipped: $LOCAL_SKIPPED"
 
-finish_logging
+exit 0

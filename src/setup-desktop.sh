@@ -77,8 +77,7 @@ declare -A CATEGORY_DEPENDENCIES=(
   ["languages"]="dev_tools"
 )
 
-# Initialize logging
-init_logging
+# Start logging
 log_info "Desktop setup started (v$VERSION)"
 
 # --- Helper functions ---
