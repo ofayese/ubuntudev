@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # Utility: util-log.sh
 # Description: Unified logging and error handling utilities
-# Last Updated: 2025-06-13
-# Version: 1.0.0
-
-# No-op spinner cleanup for compatibility with scripts expecting this function
-cleanup_all_spinners() {
-  :
-}
+# Last Updated: 2025-06-14
+# Version: 1.0.1
 
 set -euo pipefail
 
@@ -18,172 +13,220 @@ fi
 readonly UTIL_LOG_SH_LOADED=1
 
 # ------------------------------------------------------------------------------
-# Global Variable Initialization (Safe conditional pattern)
+# Global Constants and Variables
 # ------------------------------------------------------------------------------
 
-# Script directory (only declare once globally)
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  readonly SCRIPT_DIR
-fi
+# Initialize common global variables with safe conditional pattern
+_init_global_vars() {
+  # Script directory (only declare once globally)
+  if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly SCRIPT_DIR
+  fi
 
-# Version & timestamp (only declare once globally)
-if [[ -z "${VERSION:-}" ]]; then
-  VERSION="1.0.0"
-  readonly VERSION
-fi
+  # Version & timestamp (only declare once globally)
+  if [[ -z "${VERSION:-}" ]]; then
+    VERSION="1.0.1"
+    readonly VERSION
+  fi
 
-if [[ -z "${LAST_UPDATED:-}" ]]; then
-  LAST_UPDATED="2025-06-13"
-  readonly LAST_UPDATED
-fi
+  if [[ -z "${LAST_UPDATED:-}" ]]; then
+    LAST_UPDATED="2025-06-14"
+    readonly LAST_UPDATED
+  fi
 
-# OS detection (only declare once globally)
-if [[ -z "${OS_TYPE:-}" ]]; then
-  OS_TYPE="$(uname -s)"
-  readonly OS_TYPE
-fi
+  # OS detection (only declare once globally)
+  if [[ -z "${OS_TYPE:-}" ]]; then
+    OS_TYPE="$(uname -s)"
+    readonly OS_TYPE
+  fi
 
-# Dry run support (only declare once globally)
-if [[ -z "${DRY_RUN:-}" ]]; then
-  DRY_RUN="false"
-  readonly DRY_RUN
-fi
+  # Dry run support (only declare once globally)
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    DRY_RUN="false"
+    readonly DRY_RUN
+  fi
+}
 
-DEFAULT_LOG_PATH="${HOME}/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools.log"
-LOG_PATH="${LOG_PATH:-$DEFAULT_LOG_PATH}"
+# Initialize global variables
+_init_global_vars
 
-# Asynchronous logging with buffering
+# No-op spinner cleanup for compatibility with scripts expecting this function
+cleanup_all_spinners() {
+  :
+}
+
+# ------------------------------------------------------------------------------
+# Logging Configuration
+# ------------------------------------------------------------------------------
+
+# Default log path and configuration
+readonly DEFAULT_LOG_PATH="${HOME}/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools.log"
+readonly LOG_PATH="${LOG_PATH:-$DEFAULT_LOG_PATH}"
+
+# Asynchronous logging configuration
 readonly LOG_BUFFER_SIZE=100
 readonly LOG_FLUSH_INTERVAL=5
-declare -a LOG_BUFFER=()
-declare LOG_BUFFER_COUNT=0
-# shellcheck disable=SC2034  # Used in future async logging implementation
-declare LOG_LAST_FLUSH=0
-declare ASYNC_LOGGING="${ASYNC_LOGGING:-false}" # Changed default to false to avoid hanging issues
-declare LOG_FLUSHER_PID=""
-declare LOG_FALLBACK_ACTIVE=false
-declare LOG_ERROR_COUNT=0
 readonly MAX_LOG_ERRORS=5
 
-# Standard logging functions with conditional async support
-log_info() {
+# Logging state variables
+declare -a LOG_BUFFER=()
+declare -i LOG_BUFFER_COUNT=0
+declare -i LOG_LAST_FLUSH=0
+declare -i LOG_ERROR_COUNT=0
+declare LOG_FLUSHER_PID=""
+declare ASYNC_LOGGING="${ASYNC_LOGGING:-false}"
+declare LOG_FALLBACK_ACTIVE=false
+
+# ------------------------------------------------------------------------------
+# Core Logging Functions
+# ------------------------------------------------------------------------------
+
+# Generate timestamp for consistent logging format
+_get_log_timestamp() {
+  date '+%Y-%m-%d %H:%M:%S'
+}
+
+# Format log message with consistent structure
+_format_log_message() {
+  local level="$1"
+  local message="$2"
   local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-    log_info_async "$@"
+  timestamp="$(_get_log_timestamp)"
+
+  echo "[$timestamp] [$level] $message"
+}
+
+# Output log message with color and optional file logging
+_output_log_message() {
+  local level="$1"
+  local color="$2"
+  local message="$3"
+  local use_stderr="${4:-false}"
+  local timestamp
+  timestamp="$(_get_log_timestamp)"
+
+  local formatted_message
+  formatted_message="\e[${color}m[$timestamp] [$level]\e[0m $message"
+
+  if [[ "$use_stderr" == "true" ]]; then
+    echo -e "$formatted_message" >&2
   else
-    echo -e "\e[34m[$timestamp] [INFO]\e[0m $*" | tee -a "${LOG_PATH}"
+    echo -e "$formatted_message"
   fi
+
+  # Log to file without color codes
+  echo "[$timestamp] [$level] $message" >>"${LOG_PATH}" 2>/dev/null || true
+}
+
+# Route to appropriate logging method based on async setting
+_route_log_message() {
+  local level="$1"
+  local color="$2"
+  local message="$3"
+  local use_stderr="${4:-false}"
+
+  if [[ "${ASYNC_LOGGING}" == "true" ]]; then
+    "_log_${level,,}_async" "$message"
+  else
+    _output_log_message "$level" "$color" "$message" "$use_stderr"
+  fi
+}
+
+# Standard logging functions with improved consistency
+log_info() {
+  _route_log_message "INFO" "34" "$*" "false"
 }
 
 log_success() {
-  local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-    log_success_async "$@"
-  else
-    echo -e "\e[32m[$timestamp] [SUCCESS]\e[0m $*" | tee -a "${LOG_PATH}"
-  fi
+  _route_log_message "SUCCESS" "32" "$*" "false"
 }
 
 log_warning() {
-  local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-    log_warning_async "$@"
-  else
-    echo -e "\e[33m[$timestamp] [WARN]\e[0m $*" | tee -a "${LOG_PATH}"
-  fi
+  _route_log_message "WARN" "33" "$*" "true"
 }
 
 log_error() {
-  local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-    log_error_async "$@"
-  else
-    echo -e "\e[31m[$timestamp] [ERROR]\e[0m $*" | tee -a "${LOG_PATH}" >&2
-  fi
+  _route_log_message "ERROR" "31" "$*" "true"
 }
 
 log_debug() {
   if [[ "${DEBUG_LOGGING:-false}" == "true" ]]; then
-    local timestamp
-    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-      log_debug_async "$@"
-    else
-      echo -e "\e[36m[$timestamp] [DEBUG]\e[0m $*" | tee -a "${LOG_PATH}"
-    fi
+    _route_log_message "DEBUG" "36" "$*" "false"
   fi
 }
 
-# Buffered logging functions
-log_info_async() {
-  local msg
-  msg="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
-  echo -e "\e[34m[INFO]\e[0m $*"
-  add_to_log_buffer "$msg"
+# ------------------------------------------------------------------------------
+# Asynchronous Logging Functions
+# ------------------------------------------------------------------------------
+
+# Create async logging function with standardized pattern
+_create_async_log_function() {
+  local level="$1"
+  local color="$2"
+  local use_stderr="${3:-false}"
+
+  eval "_log_${level,,}_async() {
+    local message=\"\$*\"
+    local timestamp
+    timestamp=\"\$(_get_log_timestamp)\"
+    local formatted_message=\"[\$timestamp] [$level] \$message\"
+    
+    if [[ \"$use_stderr\" == \"true\" ]]; then
+      echo -e \"\e[${color}m[$level]\e[0m \$message\" >&2
+    else
+      echo -e \"\e[${color}m[$level]\e[0m \$message\"
+    fi
+    
+    _add_to_log_buffer \"\$formatted_message\"
+    
+    # Force immediate flush for errors
+    if [[ \"$level\" == \"ERROR\" ]]; then
+      _flush_log_buffer
+    fi
+  }"
 }
 
-log_success_async() {
-  local msg
-  msg="$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $*"
-  echo -e "\e[32m[SUCCESS]\e[0m $*"
-  add_to_log_buffer "$msg"
-}
+# Generate async logging functions
+_create_async_log_function "INFO" "34" "false"
+_create_async_log_function "SUCCESS" "32" "false"
+_create_async_log_function "WARN" "33" "true"
+_create_async_log_function "ERROR" "31" "true"
+_create_async_log_function "DEBUG" "36" "false"
 
-log_warning_async() {
-  local msg
-  msg="$(date '+%Y-%m-%d %H:%M:%S') [WARN] $*"
-  echo -e "\e[33m[WARN]\e[0m $*" >&2
-  add_to_log_buffer "$msg"
-}
+# ------------------------------------------------------------------------------
+# Asynchronous Logging Management
+# ------------------------------------------------------------------------------
 
-log_error_async() {
-  local msg
-  msg="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
-  echo -e "\e[31m[ERROR]\e[0m $*" >&2
-  add_to_log_buffer "$msg"
-  # Force immediate flush for errors
-  flush_log_buffer
-}
-
-log_debug_async() {
-  local msg
-  msg="$(date '+%Y-%m-%d %H:%M:%S') [DEBUG] $*"
-  echo -e "\e[36m[DEBUG]\e[0m $*"
-  add_to_log_buffer "$msg"
-}
-
-# Initialize asynchronous logging
+# Initialize asynchronous logging system
 init_async_logging() {
-  # Start background log flusher
   if [[ "${ASYNC_LOGGING}" == "true" ]]; then
-    start_log_flusher &
+    _start_log_flusher &
     LOG_FLUSHER_PID=$!
   fi
 }
 
-start_log_flusher() {
+# Start background log flusher process
+_start_log_flusher() {
   while true; do
     sleep "$LOG_FLUSH_INTERVAL"
-    flush_log_buffer
+    _flush_log_buffer
   done
 }
 
+# Clean up asynchronous logging resources
 cleanup_async_logging() {
   # Flush remaining buffer
-  flush_log_buffer
+  _flush_log_buffer
 
-  # Stop log flusher
+  # Stop log flusher if running
   if [[ -n "${LOG_FLUSHER_PID:-}" ]] && kill -0 "$LOG_FLUSHER_PID" 2>/dev/null; then
     kill "$LOG_FLUSHER_PID" 2>/dev/null || true
   fi
 }
 
-add_to_log_buffer() {
+# Add message to log buffer
+_add_to_log_buffer() {
   local message="$1"
 
   LOG_BUFFER[LOG_BUFFER_COUNT]="$message"
@@ -191,11 +234,12 @@ add_to_log_buffer() {
 
   # Flush if buffer is full
   if [[ $LOG_BUFFER_COUNT -ge $LOG_BUFFER_SIZE ]]; then
-    flush_log_buffer
+    _flush_log_buffer
   fi
 }
 
-flush_log_buffer() {
+# Flush log buffer to file
+_flush_log_buffer() {
   if [[ $LOG_BUFFER_COUNT -eq 0 ]]; then
     return 0
   fi
@@ -213,64 +257,124 @@ flush_log_buffer() {
   LOG_BUFFER_COUNT=0
 }
 
-# Execute command with logging
+# ------------------------------------------------------------------------------
+# Command Execution Functions
+# ------------------------------------------------------------------------------
+
+# Execute command with comprehensive logging and timeout handling
 log_cmd() {
   local cmd="$1"
-  local desc="${2:-Running command}"
-  local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+  local description="${2:-Running command}"
   local timeout="${3:-300}" # Default timeout of 5 minutes
+  local start_time end_time exit_code
 
-  log_info "$desc: $cmd"
+  log_info "$description: $cmd"
+  start_time="$(_get_log_timestamp)"
 
   # Execute with timeout to prevent hanging
   if timeout --foreground "$timeout" bash -c "$cmd"; then
-    local end_timestamp
-    end_timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    log_success "[$end_timestamp] $desc completed successfully"
+    end_time="$(_get_log_timestamp)"
+    log_success "[$end_time] $description completed successfully"
     return 0
   else
-    local exit_code=$?
-    local end_timestamp
-    end_timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    exit_code=$?
+    end_time="$(_get_log_timestamp)"
+
     if [[ $exit_code -eq 124 ]]; then
-      log_error "[$end_timestamp] $desc timed out after ${timeout}s"
+      log_error "[$end_time] $description timed out after ${timeout}s"
     else
-      log_error "[$end_timestamp] $desc failed (exit code: $exit_code)"
+      log_error "[$end_time] $description failed (exit code: $exit_code)"
     fi
     return $exit_code
   fi
 }
 
-# Progress indicator functions with timestamped output
+# ------------------------------------------------------------------------------
+# Progress Tracking Functions
+# ------------------------------------------------------------------------------
+
+# Constants for progress display
+readonly PROGRESS_HEADER_CHAR="═"
+readonly PROGRESS_FOOTER_CHAR="─"
+readonly PROGRESS_HEADER_WIDTH=72
+
+# Generate progress header with consistent width
+_generate_progress_header() {
+  printf "${PROGRESS_HEADER_CHAR}%.0s" $(seq 1 $PROGRESS_HEADER_WIDTH)
+}
+
+# Generate progress footer with consistent width
+_generate_progress_footer() {
+  printf "${PROGRESS_FOOTER_CHAR}%.0s" $(seq 1 $PROGRESS_HEADER_WIDTH)
+}
+
+# Calculate percentage with safety check
+_calculate_percentage() {
+  local current="$1"
+  local total="$2"
+
+  if [[ -n "$total" && "$total" -gt 0 ]]; then
+    echo $((current * 100 / total))
+  else
+    echo 0
+  fi
+}
+
+# Record step start time
+_record_step_start_time() {
+  local step_id="$1"
+  local start_time
+  start_time=$(date +%s)
+  eval "_step_start_time_${step_id}=$start_time"
+}
+
+# Calculate and format duration
+_calculate_step_duration() {
+  local step_id="$1"
+  local var_name="_step_start_time_${step_id}"
+  local start_time="${!var_name:-}"
+
+  if [[ -n "$start_time" ]]; then
+    local end_time elapsed
+    end_time=$(date +%s)
+    elapsed=$((end_time - start_time))
+
+    # Format duration
+    if [[ $elapsed -ge 3600 ]]; then
+      echo "$((elapsed / 3600))h $(((elapsed % 3600) / 60))m $((elapsed % 60))s"
+    elif [[ $elapsed -ge 60 ]]; then
+      echo "$((elapsed / 60))m $((elapsed % 60))s"
+    else
+      echo "${elapsed}s"
+    fi
+  fi
+}
+
+# Progress indicator with timestamped output
 show_progress() {
   local current="$1"
   local total="$2"
   local task="${3:-Processing}"
-  local percentage=$((current * 100 / total))
+  local percentage
   local timestamp
-  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+
+  percentage="$(_calculate_percentage "$current" "$total")"
+  timestamp="$(_get_log_timestamp)"
 
   echo -e "\e[34m[$timestamp] [PROGRESS]\e[0m $task: $percentage% ($current/$total) complete"
-  echo "$timestamp [PROGRESS] $task: $percentage% ($current/$total)" >>"${LOG_PATH}"
+  echo "$timestamp [PROGRESS] $task: $percentage% ($current/$total)" >>"${LOG_PATH}" 2>/dev/null || true
 }
 
-# Enhanced progress tracking with timestamps
-# This avoids the spinner and directly uses timestamped logs
+# Enhanced step tracking with timestamps and duration
 log_step_start() {
   local step="$1"
   local current="$2"
   local total="$3"
-  local percentage=0
+  local percentage timestamp header
 
-  if [[ -n "$total" && "$total" -gt 0 ]]; then
-    percentage=$((current * 100 / total))
-  fi
-
-  local timestamp
-  timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  local header
-  header=$(printf '═%.0s' $(seq 1 72))
+  percentage="$(_calculate_percentage "$current" "$total")"
+  timestamp="$(_get_log_timestamp)"
+  header="$(_generate_progress_header)"
 
   echo ""
   echo -e "\e[1;36m$header\e[0m"
@@ -278,7 +382,7 @@ log_step_start() {
   echo -e "\e[1;36m$header\e[0m"
 
   # Record start time for duration calculation
-  eval "_step_start_time_$current=$(date +%s)"
+  _record_step_start_time "$current"
 
   # Log to file as well
   {
@@ -293,49 +397,24 @@ log_step_complete() {
   local current="$2"
   local total="$3"
   local status="${4:-SUCCESS}"
+  local percentage timestamp duration footer status_color status_icon
 
-  local percentage=0
-  if [[ -n "$total" && "$total" -gt 0 ]]; then
-    percentage=$((current * 100 / total))
-  fi
-
-  local timestamp
-  timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  local duration=""
-
-  # Calculate duration if we have a start time
-  local var_name="_step_start_time_$current"
-  if [[ -n "${!var_name:-}" ]]; then
-    local start_time="${!var_name}"
-    local end_time
-    end_time=$(date +%s)
-    local elapsed=$((end_time - start_time))
-
-    # Format duration
-    if [[ $elapsed -ge 3600 ]]; then
-      duration="$((elapsed / 3600))h $(((elapsed % 3600) / 60))m $((elapsed % 60))s"
-    elif [[ $elapsed -ge 60 ]]; then
-      duration="$((elapsed / 60))m $((elapsed % 60))s"
-    else
-      duration="${elapsed}s"
-    fi
-  fi
+  percentage="$(_calculate_percentage "$current" "$total")"
+  timestamp="$(_get_log_timestamp)"
+  duration="$(_calculate_step_duration "$current")"
+  footer="$(_generate_progress_footer)"
 
   # Status formatting
-  local status_color="\e[1;32m" # green for success
-  if [[ "$status" != "SUCCESS" ]]; then
-    status_color="\e[1;31m" # red for failure
+  if [[ "$status" == "SUCCESS" ]]; then
+    status_color="\e[1;32m"
+    status_icon="✓"
+  else
+    status_color="\e[1;31m"
+    status_icon="✗"
   fi
-
-  local footer
-  footer=$(printf '─%.0s' $(seq 1 72))
 
   echo ""
-  if [[ "$status" == "SUCCESS" ]]; then
-    echo -e "$status_color✓ [$timestamp] COMPLETED: $step\e[0m"
-  else
-    echo -e "$status_color✗ [$timestamp] FAILED: $step\e[0m"
-  fi
+  echo -e "$status_color$status_icon [$timestamp] $status: $step\e[0m"
 
   if [[ -n "$duration" ]]; then
     echo -e "  Duration: $duration"

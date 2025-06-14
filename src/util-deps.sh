@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Utility: util-deps.sh
 # Description: Dependency graph management utilities
-# Last Updated: 2025-06-13
-# Version: 1.0.0
+# Last Updated: 2025-06-14
+# Version: 1.0.1
 
 set -euo pipefail
 
@@ -13,61 +13,84 @@ fi
 readonly UTIL_DEPS_SH_LOADED=1
 
 # ------------------------------------------------------------------------------
-# Global Variable Initialization (Safe conditional pattern)
+# Global Constants and Variables
 # ------------------------------------------------------------------------------
 
-# Script directory (only declare once globally)
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  readonly SCRIPT_DIR
-fi
+# Initialize common global variables with safe conditional pattern
+_init_global_vars() {
+  # Script directory (only declare once globally)
+  if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly SCRIPT_DIR
+  fi
 
-# Version & timestamp (only declare once globally)
-if [[ -z "${VERSION:-}" ]]; then
-  VERSION="1.0.0"
-  readonly VERSION
-fi
+  # Version & timestamp (only declare once globally)
+  if [[ -z "${VERSION:-}" ]]; then
+    VERSION="1.0.1"
+    readonly VERSION
+  fi
 
-if [[ -z "${LAST_UPDATED:-}" ]]; then
-  LAST_UPDATED="2025-06-13"
-  readonly LAST_UPDATED
-fi
+  if [[ -z "${LAST_UPDATED:-}" ]]; then
+    LAST_UPDATED="2025-06-14"
+    readonly LAST_UPDATED
+  fi
 
-# OS detection (only declare once globally)
-if [[ -z "${OS_TYPE:-}" ]]; then
-  OS_TYPE="$(uname -s)"
-  readonly OS_TYPE
-fi
+  # OS detection (only declare once globally)
+  if [[ -z "${OS_TYPE:-}" ]]; then
+    OS_TYPE="$(uname -s)"
+    readonly OS_TYPE
+  fi
 
-# Dry run support (only declare once globally)
-if [[ -z "${DRY_RUN:-}" ]]; then
-  DRY_RUN="false"
-  readonly DRY_RUN
-fi
+  # Dry run support (only declare once globally)
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    DRY_RUN="false"
+    readonly DRY_RUN
+  fi
+}
 
-# ------------------------------------------------------------------------------
-# Dependency: Logging functions (optional)
-# ------------------------------------------------------------------------------
-
-if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
-  source "${SCRIPT_DIR}/util-log.sh" || {
-    echo "[ERROR] Failed to source util-log.sh" >&2
-    exit 1
-  }
-fi
+# Initialize global variables
+_init_global_vars
 
 # ------------------------------------------------------------------------------
-# Module Functions
+# Dependencies: Load required utilities
 # ------------------------------------------------------------------------------
 
-# Initialize/clear dependency arrays if they don't exist or we need fresh state
-# Use conditional declaration to avoid redeclaring if already sourced in parent script
-if [[ -z "${REQUIRES+x}" ]]; then
-  declare -A REQUIRES=() DEPENDENTS=() SCRIPTS=() DESCRIPTIONS=()
-  declare -a COMPONENTS=()
-  # Export arrays for use by other scripts
-  export REQUIRES DEPENDENTS SCRIPTS DESCRIPTIONS COMPONENTS
-fi
+_source_utility() {
+  local utility_name="$1"
+  local utility_path="${SCRIPT_DIR}/${utility_name}"
+
+  if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "$utility_path" ]]; then
+    # shellcheck source=./util-log.sh
+    source "$utility_path" || {
+      echo "[ERROR] Failed to source $utility_name" >&2
+      exit 1
+    }
+  fi
+}
+
+# Source logging utilities if available
+_source_utility "util-log.sh"
+
+# ------------------------------------------------------------------------------
+# Dependency Management Data Structures
+# ------------------------------------------------------------------------------
+
+# Initialize dependency arrays with conditional declaration
+_init_dependency_arrays() {
+  if [[ -z "${REQUIRES+x}" ]]; then
+    declare -gA REQUIRES=() DEPENDENTS=() SCRIPTS=() DESCRIPTIONS=()
+    declare -ga COMPONENTS=()
+    # Export arrays for use by other scripts
+    export REQUIRES DEPENDENTS SCRIPTS DESCRIPTIONS COMPONENTS
+  fi
+}
+
+# Initialize dependency data structures
+_init_dependency_arrays
+
+# ------------------------------------------------------------------------------
+# Core Dependency Functions
+# ------------------------------------------------------------------------------
 
 load_dependencies() {
   local yaml="$1"

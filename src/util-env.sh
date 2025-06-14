@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Utility: util-env.sh
 # Description: Environment detection and system info utilities
-# Last Updated: 2025-06-13
-# Version: 1.0.0
+# Last Updated: 2025-06-14
+# Version: 1.0.1
 
 set -euo pipefail
 
@@ -13,82 +13,109 @@ fi
 readonly UTIL_ENV_SH_LOADED=1
 
 # ------------------------------------------------------------------------------
-# Global Variable Initialization (Safe conditional pattern)
+# Global Constants and Variables
 # ------------------------------------------------------------------------------
 
-# Script directory (only declare once globally)
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  readonly SCRIPT_DIR
-fi
+# Initialize common global variables with safe conditional pattern
+_init_global_vars() {
+  # Script directory (only declare once globally)
+  if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly SCRIPT_DIR
+  fi
 
-# Version & timestamp (only declare once globally)
-if [[ -z "${VERSION:-}" ]]; then
-  VERSION="1.0.0"
-  readonly VERSION
-fi
+  # Version & timestamp (only declare once globally)
+  if [[ -z "${VERSION:-}" ]]; then
+    VERSION="1.0.1"
+    readonly VERSION
+  fi
 
-if [[ -z "${LAST_UPDATED:-}" ]]; then
-  LAST_UPDATED="2025-06-13"
-  readonly LAST_UPDATED
-fi
+  if [[ -z "${LAST_UPDATED:-}" ]]; then
+    LAST_UPDATED="2025-06-14"
+    readonly LAST_UPDATED
+  fi
 
-# OS detection (only declare once globally)
-if [[ -z "${OS_TYPE:-}" ]]; then
-  OS_TYPE="$(uname -s)"
-  readonly OS_TYPE
-fi
+  # OS detection (only declare once globally)
+  if [[ -z "${OS_TYPE:-}" ]]; then
+    OS_TYPE="$(uname -s)"
+    readonly OS_TYPE
+  fi
 
-# Dry run support (only declare once globally)
-if [[ -z "${DRY_RUN:-}" ]]; then
-  DRY_RUN="false"
-  readonly DRY_RUN
-fi
+  # Dry run support (only declare once globally)
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    DRY_RUN="false"
+    readonly DRY_RUN
+  fi
+}
+
+# Initialize global variables
+_init_global_vars
 
 # ------------------------------------------------------------------------------
 # Dependencies: Load required utilities
 # ------------------------------------------------------------------------------
 
-if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
-  source "${SCRIPT_DIR}/util-log.sh" || {
-    echo "[ERROR] Failed to source util-log.sh" >&2
-    exit 1
-  }
-fi
+_source_utility() {
+  local utility_name="$1"
+  local utility_path="${SCRIPT_DIR}/${utility_name}"
+
+  if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "$utility_path" ]]; then
+    source "$utility_path" || {
+      echo "[ERROR] Failed to source $utility_name" >&2
+      exit 1
+    }
+  fi
+}
+
+# Source logging utilities if available
+_source_utility "util-log.sh"
 
 # ------------------------------------------------------------------------------
-# Module Functions
+# Environment Type Constants
 # ------------------------------------------------------------------------------
 
-# --- Environment Types (with guards to prevent redeclaration) ---
-if [[ -z "${ENV_WSL:-}" ]]; then
-  readonly ENV_WSL="WSL2"
-fi
+# Environment types with safe declaration guard
+_init_environment_constants() {
+  if [[ -z "${ENV_WSL:-}" ]]; then
+    readonly ENV_WSL="WSL2"
+  fi
 
-if [[ -z "${ENV_DESKTOP:-}" ]]; then
-  readonly ENV_DESKTOP="DESKTOP"
-fi
+  if [[ -z "${ENV_DESKTOP:-}" ]]; then
+    readonly ENV_DESKTOP="DESKTOP"
+  fi
 
-if [[ -z "${ENV_HEADLESS:-}" ]]; then
-  readonly ENV_HEADLESS="HEADLESS"
-fi
+  if [[ -z "${ENV_HEADLESS:-}" ]]; then
+    readonly ENV_HEADLESS="HEADLESS"
+  fi
+}
+
+# Initialize environment constants
+_init_environment_constants
+
+# ------------------------------------------------------------------------------
+# Resource Monitoring Configuration
+# ------------------------------------------------------------------------------
 
 # Resource monitoring with caching and comprehensive metrics
 declare -A RESOURCE_CACHE=()
 declare -A CACHE_TIMESTAMPS=()
 readonly CACHE_TTL=300 # 5 minutes
 
-# --- Enhanced environment detection with multiple validation methods ---
+# ------------------------------------------------------------------------------
+# Core Environment Detection Functions
+# ------------------------------------------------------------------------------
+
+# Enhanced environment detection with multiple validation methods
 detect_environment() {
   local env_type=""
   local confidence_score=0
 
   # WSL Detection with multiple methods
-  if detect_wsl_environment; then
+  if _detect_wsl_environment; then
     env_type="$ENV_WSL"
     confidence_score=90
   # Desktop detection with comprehensive checks
-  elif detect_desktop_environment; then
+  elif _detect_desktop_environment; then
     env_type="$ENV_DESKTOP"
     confidence_score=85
   # Headless as fallback
@@ -99,10 +126,22 @@ detect_environment() {
 
   # Validate detection confidence
   if [[ $confidence_score -lt 80 ]] && [[ "${DEBUG_LOGGING:-false}" == "true" ]]; then
-    log_debug "Environment detection confidence low ($confidence_score%): $env_type"
+    if command -v log_debug >/dev/null 2>&1; then
+      log_debug "Environment detection confidence low ($confidence_score%): $env_type"
+    fi
   fi
 
   echo "$env_type"
+}
+
+# Internal WSL detection function
+_detect_wsl_environment() {
+  [[ -f "/proc/version" ]] && grep -qi "microsoft" "/proc/version" 2>/dev/null
+}
+
+# Internal desktop environment detection function
+_detect_desktop_environment() {
+  [[ -n "${DISPLAY:-}" ]] || [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ -n "${XDG_CURRENT_DESKTOP:-}" ]]
 }
 
 # --- Advanced WSL Integration and Windows Host Detection ---

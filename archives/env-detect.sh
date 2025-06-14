@@ -1,16 +1,36 @@
 #!/usr/bin/env bash
 # env-detect.sh - Detect and report the current environment
+# Version: 1.0.1
+# Last Updated: 2025-06-14
+
 set -euo pipefail
 
-# Script version and last updated timestamp
-readonly VERSION="1.0.0"
-readonly LAST_UPDATED="2025-06-13"
+# ------------------------------------------------------------------------------
+# Script Metadata
+# ------------------------------------------------------------------------------
 
-# Cross-platform support
-OS_TYPE="$(uname -s)"
-readonly OS_TYPE
+readonly VERSION="1.0.1"
+readonly LAST_UPDATED="2025-06-14"
+readonly OS_TYPE="$(uname -s)"
 
-# Function to display usage information
+# ------------------------------------------------------------------------------
+# Configuration and Constants
+# ------------------------------------------------------------------------------
+
+# Default settings
+readonly DEFAULT_DRY_RUN="${DRY_RUN:-false}"
+
+# Exit codes
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+readonly EXIT_PERMISSION_DENIED=126
+readonly EXIT_COMMAND_NOT_FOUND=127
+
+# ------------------------------------------------------------------------------
+# Help and Usage Functions
+# ------------------------------------------------------------------------------
+
+# Display comprehensive usage information
 show_usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -41,10 +61,10 @@ Examples:
     $(basename "$0") --quiet            # Output only environment type
 
 Exit Codes:
-    0   Success - environment detected
-    1   General error
-    127 Required utility file not found
-    126 Permission denied
+    $EXIT_SUCCESS   Success - environment detected
+    $EXIT_GENERAL_ERROR   General error
+    $EXIT_COMMAND_NOT_FOUND Required utility file not found
+    $EXIT_PERMISSION_DENIED Permission denied
 
 Author: Ubuntu Development Environment Setup
 Version: $VERSION
@@ -52,52 +72,89 @@ Last Updated: $LAST_UPDATED
 EOF
 }
 
-# Parse command line arguments
-VERBOSE=false
-QUIET=false
-JSON_OUTPUT=false
-readonly DRY_RUN="${DRY_RUN:-false}"
+# Display version information
+show_version() {
+    echo "$(basename "$0") version $VERSION (Last updated: $LAST_UPDATED)"
+}
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-    -h | --help)
-        show_usage
-        exit 0
-        ;;
-    -v | --verbose)
-        VERBOSE=true
-        shift
-        ;;
-    -q | --quiet)
-        QUIET=true
-        shift
-        ;;
-    --json)
-        JSON_OUTPUT=true
-        shift
-        ;;
-    --version)
-        echo "env-detect.sh version $VERSION (Last updated: $LAST_UPDATED)"
-        exit 0
-        ;;
-    *)
-        echo "Error: Unknown option '$1'" >&2
-        echo "Use --help for usage information" >&2
-        exit 1
-        ;;
-    esac
-done
+# ------------------------------------------------------------------------------
+# Argument Parsing and Validation
+# ------------------------------------------------------------------------------
 
-# Source the environment utility with error handling
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-UTIL_ENV_PATH="$SCRIPT_DIR/util-env.sh"
+# Parse command line arguments with improved error handling
+parse_arguments() {
+    # Initialize option flags
+    VERBOSE=false
+    QUIET=false
+    JSON_OUTPUT=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+        -h | --help)
+            show_usage
+            exit $EXIT_SUCCESS
+            ;;
+        -v | --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -q | --quiet)
+            QUIET=true
+            shift
+            ;;
+        --json)
+            JSON_OUTPUT=true
+            shift
+            ;;
+        --version)
+            show_version
+            exit $EXIT_SUCCESS
+            ;;
+        *)
+            echo "Error: Unknown option '$1'" >&2
+            echo "Use --help for usage information" >&2
+            exit $EXIT_GENERAL_ERROR
+            ;;
+        esac
+    done
+    
+    # Validate conflicting options
+    if [[ "$VERBOSE" == true && "$QUIET" == true ]]; then
+        echo "Error: --verbose and --quiet options are mutually exclusive" >&2
+        exit $EXIT_GENERAL_ERROR
+    fi
+}
 
-# Validate utility file exists and is readable
-if [[ ! -f "$UTIL_ENV_PATH" ]]; then
-    echo "Error: Required utility file not found: $UTIL_ENV_PATH" >&2
-    echo "Please ensure util-env.sh is in the same directory as this script" >&2
-    exit 127
+# Source utility dependencies with comprehensive error handling
+source_dependencies() {
+    local script_dir util_env_path
+    
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly SCRIPT_DIR="$script_dir"
+    
+    util_env_path="$SCRIPT_DIR/util-env.sh"
+    
+    # Validate utility file exists and is readable
+    if [[ ! -f "$util_env_path" ]]; then
+        echo "Error: Required utility file not found: $util_env_path" >&2
+        echo "Please ensure util-env.sh is in the same directory as this script" >&2
+        exit $EXIT_COMMAND_NOT_FOUND
+    fi
+    
+    if [[ ! -r "$util_env_path" ]]; then
+        echo "Error: Cannot read utility file: $util_env_path" >&2
+        echo "Please check file permissions" >&2
+        exit $EXIT_PERMISSION_DENIED
+    fi
+    
+    # Source the utility with error handling
+    # shellcheck source=./util-env.sh
+    if ! source "$util_env_path"; then
+        echo "Error: Failed to source utility file: $util_env_path" >&2
+        echo "The utility file may contain syntax errors" >&2
+        exit $EXIT_GENERAL_ERROR
+    fi
+}
 fi
 
 if [[ ! -r "$UTIL_ENV_PATH" ]]; then
