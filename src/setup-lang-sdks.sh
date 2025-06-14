@@ -90,32 +90,26 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 # Detect environment
-ENV_TYPE=$(detect_environment)
+ENV_TYPE="native"
+if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSLENV:-}" ]]; then
+    ENV_TYPE="wsl"
+fi
 log_info "Environment detected: $ENV_TYPE"
 
 # Define installation steps for progress tracking
-declare -a SETUP_STEPS=(
-    "rust_setup"
-    "java_setup"
-    "haskell_setup"
-)
-
-current_step=0
-total_steps=${#SETUP_STEPS[@]}
+log_info "Starting language SDK installations..."
 
 # --- RUST (Rustup) ---
-((current_step++))
-log_info "[$current_step/$total_steps] Installing Rust via rustup..."
-show_progress "$current_step" "$total_steps" "Language SDKs Setup"
+log_info "[1/3] Installing Rust via rustup..."
 
 # Check if Rust is already installed
 if command -v rustc &>/dev/null && command -v cargo &>/dev/null; then
     log_info "Rust is already installed, updating instead..."
     source "$HOME/.cargo/env" 2>/dev/null || true
-    if rustup update; then
+    if timeout 300 rustup update --no-self-update; then
         log_success "Rust updated successfully"
     else
-        log_warning "Failed to update Rust"
+        log_warning "Failed to update Rust (may have timed out)"
     fi
 else
     log_info "Installing Rust via rustup..."
@@ -133,14 +127,14 @@ else
         chmod 700 "$RUSTUP_SCRIPT"
 
         # Execute the validated script with required parameters
-        if bash "$RUSTUP_SCRIPT" -y; then
+        if timeout 300 bash "$RUSTUP_SCRIPT" -y --no-modify-path; then
             log_success "Rust installed successfully"
             # Load Rust environment
             source "$HOME/.cargo/env" 2>/dev/null || {
                 log_warning "Failed to source Rust environment. You may need to restart your terminal."
             }
         else
-            log_error "Failed to run the Rustup installer"
+            log_error "Failed to run the Rustup installer (may have timed out)"
         fi
     else
         log_error "Failed to download and validate Rustup installer"
@@ -159,16 +153,17 @@ for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
 done
 
 # --- JAVA / JVM via SDKMAN ---
-((current_step++))
-log_info "[$current_step/$total_steps] Installing SDKMAN and JVM toolchain..."
-show_progress "$current_step" "$total_steps" "Language SDKs Setup"
+log_info "[2/3] Installing SDKMAN and JVM toolchain..."
 
 # Check if SDKMAN is already installed
 if [ -d "$HOME/.sdkman" ] && [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
     log_info "SDKMAN is already installed, skipping installation..."
+    # Initialize SDKMAN with relaxed error handling
+    set +euo pipefail # Disable strict error checking for SDKMAN
     source "$HOME/.sdkman/bin/sdkman-init.sh" || {
         log_warning "Failed to source SDKMAN environment"
     }
+    set -euo pipefail # Re-enable strict error checking
 else
     log_info "Installing SDKMAN..."
 
@@ -184,15 +179,17 @@ else
         # Make the script executable
         chmod 700 "$SDKMAN_SCRIPT"
 
-        # Execute the validated script
-        if bash "$SDKMAN_SCRIPT"; then
+        # Execute the validated script with timeout
+        if timeout 300 bash "$SDKMAN_SCRIPT"; then
             log_success "SDKMAN installed successfully"
-            # Initialize SDKMAN
+            # Initialize SDKMAN with relaxed error handling
+            set +euo pipefail # Disable strict error checking for SDKMAN
             source "$HOME/.sdkman/bin/sdkman-init.sh" 2>/dev/null || {
                 log_warning "Failed to source SDKMAN environment. You may need to restart your terminal."
             }
+            set -euo pipefail # Re-enable strict error checking
         else
-            log_error "Failed to run the SDKMAN installer"
+            log_error "Failed to run the SDKMAN installer (may have timed out)"
             rm -rf "$TEMP_DIR"
             exit 1
         fi
@@ -224,44 +221,53 @@ install_java_version() {
     local vendor=${3:-tem}
 
     log_info "Trying to install Java $specific_version..."
-    if command -v sdk &>/dev/null && sdk install java $specific_version-$vendor 2>/dev/null; then
+
+    # Temporarily disable strict error checking for SDK commands
+    set +eu
+
+    if command -v sdk &>/dev/null && timeout 300 sdk install java $specific_version-$vendor </dev/null 2>/dev/null; then
         log_success "Installed Java $specific_version-$vendor"
+        set -eu
         return 0
     else
         log_warning "Specific Java $specific_version not available, trying latest $major_version.x..."
-        if command -v sdk &>/dev/null && sdk install java $major_version-$vendor 2>/dev/null; then
+        if command -v sdk &>/dev/null && timeout 300 sdk install java $major_version-$vendor </dev/null 2>/dev/null; then
             log_success "Installed Java $major_version-$vendor"
+            set -eu
             return 0
-        elif command -v sdk &>/dev/null && sdk install java $major_version.0-$vendor 2>/dev/null; then
+        elif command -v sdk &>/dev/null && timeout 300 sdk install java $major_version.0-$vendor </dev/null 2>/dev/null; then
             log_success "Installed Java $major_version.0-$vendor"
+            set -eu
             return 0
         else
             log_warning "Failed to install Java $major_version"
+            set -eu
             return 1
         fi
     fi
 }
 
 # Install Java 17 and 21
-install_java_version "17" "17.0.9"
-install_java_version "21" "21.0.2"
+install_java_version "17" "17.0.9" || log_warning "Failed to install Java 17"
+install_java_version "21" "21.0.2" || log_warning "Failed to install Java 21"
 
 # Set default Java version (prefer 17 for broader compatibility)
 log_info "Setting default Java version..."
 if command -v sdk &>/dev/null; then
-    if sdk default java 17-tem 2>/dev/null || sdk default java 17.0-tem 2>/dev/null || sdk default java 17.0.9-tem 2>/dev/null; then
+    # Temporarily disable strict error checking for SDK commands
+    set +eu
+    if timeout 60 sdk default java 17-tem </dev/null 2>/dev/null || timeout 60 sdk default java 17.0-tem </dev/null 2>/dev/null || timeout 60 sdk default java 17.0.9-tem </dev/null 2>/dev/null; then
         log_success "Set Java 17 as default"
     else
         log_warning "Could not set Java 17 as default"
     fi
+    set -eu
 else
     log_warning "SDKMAN command 'sdk' not available, skipping default Java setup"
 fi
 
 # --- HASKELL via GHCup ---
-((current_step++))
-log_info "[$current_step/$total_steps] Installing Haskell via GHCup..."
-show_progress "$current_step" "$total_steps" "Language SDKs Setup"
+log_info "[3/3] Installing Haskell via GHCup..."
 
 # Check if GHCup is already installed
 if [ -d "$HOME/.ghcup" ] && command -v ghc &>/dev/null; then
@@ -284,10 +290,10 @@ else
         chmod 700 "$GHCUP_SCRIPT"
 
         # Execute the validated script with non-interactive setting
-        if BOOTSTRAP_HASKELL_NONINTERACTIVE=1 bash "$GHCUP_SCRIPT"; then
+        if timeout 300 bash -c "BOOTSTRAP_HASKELL_NONINTERACTIVE=1 bash '$GHCUP_SCRIPT'"; then
             log_success "Haskell/GHCup installed successfully"
         else
-            log_error "Failed to run the GHCup installer"
+            log_error "Failed to run the GHCup installer (may have timed out)"
         fi
     else
         log_error "Failed to download and validate GHCup installer"

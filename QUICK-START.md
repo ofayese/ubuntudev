@@ -5,7 +5,7 @@
 ### Complete Installation
 
 ```bash
-./install-new-refactored.sh --all
+src/install-new-refactored.sh --all
 ```
 
 ### Common Development Setups
