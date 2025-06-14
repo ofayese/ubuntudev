@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # setup-terminal-enhancements.sh - Configure modern terminal environment with Alacritty, tmux, and Starship
+# Version: 1.0.0
+# Last updated: 2025-06-13
 #
 # This script installs and configures:
 # - Alacritty terminal emulator with JetBrains Mono font
@@ -9,11 +11,29 @@
 # - PowerShell profile (if available)
 #
 # Usage: ./setup-terminal-enhancements.sh
-# 
+#
 # Environment support: WSL2, Desktop, Headless
 # Dependencies: util-log.sh, util-env.sh, util-install.sh
 #
 set -euo pipefail
+
+# Script version and last updated timestamp
+readonly VERSION="1.0.0"
+readonly LAST_UPDATED="2025-06-13"
+
+# Cross-platform support
+OS_TYPE="$(uname -s)"
+readonly OS_TYPE
+
+# Dry-run mode support
+readonly DRY_RUN="${DRY_RUN:-false}"
+
+# Define trusted domains for downloads
+readonly TRUSTED_DOMAINS=(
+  "starship.rs"
+  "github.com"
+  "raw.githubusercontent.com"
+)
 
 # Cleanup function for safe exit
 cleanup() {
@@ -30,18 +50,73 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-# Source utility modules
+# Source utility modules with error checking
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./util-log.sh
-source "$SCRIPT_DIR/util-log.sh"
-# shellcheck source=./util-env.sh
-source "$SCRIPT_DIR/util-env.sh"
-# shellcheck source=./util-install.sh
-source "$SCRIPT_DIR/util-install.sh"
+readonly SCRIPT_DIR
+
+source "$SCRIPT_DIR/util-log.sh" || {
+  echo "FATAL: Failed to source util-log.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+  echo "FATAL: Failed to source util-env.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+  echo "FATAL: Failed to source util-install.sh" >&2
+  exit 1
+}
+
+# Secure download and validation function
+validate_and_download() {
+  local url="$1"
+  local output_file="$2"
+  local description="$3"
+
+  # Extract domain for validation
+  local domain
+  domain=$(echo "$url" | sed -n 's|^https://\([^/]*\).*|\1|p')
+
+  # Validate domain is in trusted list
+  local is_trusted=false
+  for trusted_domain in "${TRUSTED_DOMAINS[@]}"; do
+    if [[ "$domain" == "$trusted_domain" || "$domain" == *".$trusted_domain" ]]; then
+      is_trusted=true
+      break
+    fi
+  done
+
+  if [[ "$is_trusted" != "true" ]]; then
+    log_error "Security error: Domain $domain is not in trusted domains list"
+    return 1
+  fi
+
+  # Download with proper error handling and HTTPS enforcement
+  log_info "Downloading $description from $domain..."
+  if ! curl --proto '=https' --tlsv1.2 -sSf -o "$output_file" "$url"; then
+    log_error "Failed to download $description from $url"
+    return 1
+  fi
+
+  # Basic validation - file exists and is not empty
+  if [[ ! -s "$output_file" ]]; then
+    log_error "Downloaded file is empty or does not exist"
+    return 1
+  fi
+
+  log_success "Successfully downloaded and validated $description"
+  return 0
+}
 
 # Initialize logging
 init_logging
-log_info "Terminal enhancements setup started"
+log_info "Terminal enhancements setup started (v$VERSION, updated $LAST_UPDATED)"
+
+# Display dry-run mode notice if active
+if [[ "$DRY_RUN" == "true" ]]; then
+  log_info "=== DRY RUN MODE: No system changes will be made ==="
+  log_info "This is a simulation to show what would be installed."
+fi
 
 # Detect environment
 ENV_TYPE=$(detect_environment)
@@ -54,27 +129,58 @@ fi
 
 # Install Starship if not already installed
 install_starship() {
-  if command -v starship &> /dev/null; then
+  if command -v starship &>/dev/null; then
     log_info "Starship is already installed, skipping..."
     return 0
   fi
-  
+
   log_info "Installing Starship prompt..."
-  curl -sS https://starship.rs/install.sh | sh -s -- --yes >/dev/null 2>&1 || {
-    log_warning "Failed to install Starship using curl script, trying alternative methods..."
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[DRY-RUN] Would download and install Starship from https://starship.rs"
+    log_success "[DRY-RUN] Starship would be installed successfully"
+    return 0
+  fi
+
+  # Create a secure temporary directory for the download
+  TEMP_DIR=$(mktemp -d)
+  chmod 700 "$TEMP_DIR"
+  STARSHIP_SCRIPT="$TEMP_DIR/starship.sh"
+
+  if validate_and_download "https://starship.rs/install.sh" "$STARSHIP_SCRIPT" "Starship installer"; then
+    # Make the script executable
+    chmod 700 "$STARSHIP_SCRIPT"
+
+    # Execute the validated script with required parameters
+    if sh "$STARSHIP_SCRIPT" --yes; then
+      log_success "Starship installed successfully"
+    else
+      log_error "Failed to run the Starship installer"
+      rm -rf "$TEMP_DIR"
+      log_warning "Failed to install Starship using download script, trying alternative methods..."
+    fi
+  else
+    log_warning "Failed to download Starship installer, trying alternative methods..."
+
+    # Clean up temp dir from failed download
+    rm -rf "$TEMP_DIR"
+
     # Try installing via cargo if available
-    if command -v cargo &> /dev/null; then
+    if command -v cargo &>/dev/null; then
       cargo install starship >/dev/null 2>&1 || {
         log_warning "Failed to install Starship via cargo, creating a simple PS1 prompt instead."
-        echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+        echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >>~/.bashrc
         return 1
       }
     else
       log_warning "Failed to install Starship and cargo not available. Creating a simple PS1 prompt instead."
-      echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+      echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >>~/.bashrc
       return 1
     fi
-  }
+  fi
+
+  # Clean up successful install temp dir
+  rm -rf "$TEMP_DIR" 2>/dev/null || true
   log_success "Starship installed successfully"
   return 0
 }
@@ -120,7 +226,7 @@ safe_apt_install "${packages_to_install[@]}" >/dev/null 2>&1
 
 # Try optional packages individually
 for pkg in "${optional_packages[@]}"; do
-    safe_apt_install "$pkg" >/dev/null 2>&1 || log_warning "Could not install optional package: $pkg"
+  safe_apt_install "$pkg" >/dev/null 2>&1 || log_warning "Could not install optional package: $pkg"
 done
 
 stop_spinner "Installing fonts and terminal packages"
@@ -134,7 +240,7 @@ start_spinner "Configuring Alacritty"
 # Create Alacritty config with backup
 mkdir -p ~/.config/alacritty
 create_config_backup ~/.config/alacritty/alacritty.toml
-cat > ~/.config/alacritty/alacritty.toml <<'EOF'
+cat >~/.config/alacritty/alacritty.toml <<'EOF'
 [shell]
 program = "tmux"
 
@@ -177,7 +283,7 @@ EOF
 
 # --- Tmux Config ---
 create_config_backup ~/.tmux.conf
-cat > ~/.tmux.conf <<'EOF'
+cat >~/.tmux.conf <<'EOF'
 set -g mouse on
 set -g history-limit 100000
 set-option -g allow-rename off
@@ -203,7 +309,7 @@ stop_spinner "Installing Starship prompt"
 # --- Starship Configuration ---
 mkdir -p ~/.config
 create_config_backup ~/.config/starship.toml
-cat > ~/.config/starship.toml <<'EOF'
+cat >~/.config/starship.toml <<'EOF'
 add_newline = false
 
 [character]
@@ -263,7 +369,7 @@ fi
 if ! grep -q '__show_env_banner' ~/.bashrc 2>/dev/null; then
   # Ensure .bashrc exists
   touch ~/.bashrc
-  echo "$ENV_BANNER_FUNC" >> ~/.bashrc
+  echo "$ENV_BANNER_FUNC" >>~/.bashrc
 fi
 
 # Zsh version - ensure .zshrc exists
@@ -291,7 +397,7 @@ fi
   __show_env_banner'
   echo '[ -z "$TMUX" ] && command -v tmux >/dev/null && exec tmux'
   echo 'command -v neofetch >/dev/null && neofetch || command -v screenfetch >/dev/null && screenfetch'
-} >> ~/.zshrc
+} >>~/.zshrc
 
 # --- Auto-switch to Zsh ---
 CURRENT_SHELL=$(basename "$SHELL")
@@ -310,7 +416,7 @@ fi
 if command_exists pwsh; then
   log_info "Setting up PowerShell profile..."
   mkdir -p ~/.config/powershell
-  cat > ~/.config/powershell/Microsoft.PowerShell_profile.ps1 <<'EOF'
+  cat >~/.config/powershell/Microsoft.PowerShell_profile.ps1 <<'EOF'
 Invoke-Expression (&starship init powershell)
 if (Get-Command neofetch -ErrorAction SilentlyContinue) { neofetch }
 EOF

@@ -4,7 +4,12 @@
 # Last updated: 2025-06-13
 set -euo pipefail
 
-readonly VERSION="2.0.0"
+# Use declare first, then make readonly to avoid redeclaration issues
+# when multiple scripts define the same constants
+# VERSION is used for logging/reporting and debugging
+declare VERSION="2.0.0"
+export VERSION
+readonly VERSION
 
 # shellcheck disable=SC2034  # SCRIPT_DIR used by sourced utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

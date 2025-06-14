@@ -3,20 +3,43 @@
 # Modular desktop setup utility with robust error handling and security
 set -euo pipefail
 
+# Script version and last updated timestamp
+readonly VERSION="1.0.0"
+readonly LAST_UPDATED="2025-06-13"
+
+# Cross-platform support
+OS_TYPE="$(uname -s)"
+readonly OS_TYPE
+
+# Dry-run mode support
+readonly DRY_RUN="${DRY_RUN:-false}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
-source "$SCRIPT_DIR/util-log.sh"
-# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
-source "$SCRIPT_DIR/util-install.sh"
-# shellcheck disable=SC1091  # Dynamic sourcing - paths validated at runtime
-source "$SCRIPT_DIR/util-env.sh"
+readonly SCRIPT_DIR
+
+# Source utility modules with error checking
+source "$SCRIPT_DIR/util-log.sh" || {
+  echo "FATAL: Failed to source util-log.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+  echo "FATAL: Failed to source util-install.sh" >&2
+  exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+  echo "FATAL: Failed to source util-env.sh" >&2
+  exit 1
+}
 
 # Constants and configuration
-VERSION="1.0.0"
 STATE_DIR="$HOME/.desktop-setup-state"
+readonly STATE_DIR
 STATE_FILE="$STATE_DIR/installation.state"
+readonly STATE_FILE
 ROLLBACK_DIR="$STATE_DIR/backups"
+readonly ROLLBACK_DIR
 DOWNLOAD_DIR="/tmp/desktop-setup-downloads"
+readonly DOWNLOAD_DIR
 
 # Default settings
 # shellcheck disable=SC2034  # VERBOSE is used in command line parsing and reserved for future logging enhancement
@@ -25,6 +48,12 @@ FORCE_REINSTALL=false
 AUTO_ROLLBACK=false
 SECURE_MODE=true
 OFFLINE_MODE=false
+
+# Display dry-run mode notice if active
+if [[ "$DRY_RUN" == "true" ]]; then
+  log_info "=== DRY RUN MODE: No system changes will be made ==="
+  log_info "This is a simulation to show what would be installed."
+fi
 
 # Categories with dependencies
 declare -A INSTALL_CATEGORIES=(

@@ -1,21 +1,52 @@
 #!/usr/bin/env bash
+# validate-installation.sh - Verify development environment setup
+# Version: 1.0.0
+# Last updated: 2025-06-13
 set -euo pipefail
 
-# Source utility modules
+# Script version and last updated timestamp
+readonly VERSION="1.0.0"
+readonly LAST_UPDATED="2025-06-13"
+
+# Cross-platform support
+OS_TYPE="$(uname -s)"
+readonly OS_TYPE
+
+# Dry-run mode support
+readonly DRY_RUN="${DRY_RUN:-false}"
+
+# Source utility modules with error checking
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/util-log.sh"
-source "$SCRIPT_DIR/util-env.sh" 
-source "$SCRIPT_DIR/util-install.sh"
+readonly SCRIPT_DIR
+
+source "$SCRIPT_DIR/util-log.sh" || {
+    echo "FATAL: Failed to source util-log.sh" >&2
+    exit 1
+}
+source "$SCRIPT_DIR/util-env.sh" || {
+    echo "FATAL: Failed to source util-env.sh" >&2
+    exit 1
+}
+source "$SCRIPT_DIR/util-install.sh" || {
+    echo "FATAL: Failed to source util-install.sh" >&2
+    exit 1
+}
 
 # Initialize logging
 init_logging
-log_info "Installation validation started"
+log_info "Installation validation started (v$VERSION, updated $LAST_UPDATED)"
+
+# Display dry-run mode notice if active
+if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "=== DRY RUN MODE: No system changes will be made ==="
+    log_info "This is a simulation of the validation process."
+fi
 
 # Function to check if a command exists (using util-env.sh function)
 check_command() {
     local cmd="$1"
     local description="$2"
-    
+
     if command_exists "$cmd"; then
         log_success "$description ($cmd)"
         return 0
@@ -29,7 +60,7 @@ check_command() {
 check_service() {
     local service="$1"
     local description="$2"
-    
+
     if systemctl is-active --quiet "$service" 2>/dev/null; then
         log_success "$description service is running"
         return 0
@@ -42,7 +73,7 @@ check_service() {
 # Function to check Python packages (using util-install.sh function)
 check_python_package() {
     local package="$1"
-    
+
     if is_pip_installed "$package"; then
         log_success "Python package: $package"
         return 0
@@ -55,7 +86,7 @@ check_python_package() {
 # Function to check Node.js packages (using util-install.sh function)
 check_node_package() {
     local package="$1"
-    
+
     if is_npm_global_installed "$package"; then
         log_success "Node.js package: $package"
         return 0
@@ -70,14 +101,14 @@ echo "================================================="
 
 # Define validation steps for progress tracking
 declare -a VALIDATION_STEPS=(
-  "basic_tools"
-  "modern_cli_tools"
-  "language_runtimes"
-  "development_tools"
-  "container_tools"
-  "dotnet_tools"
-  "python_environment"
-  "shell_environment"
+    "basic_tools"
+    "modern_cli_tools"
+    "language_runtimes"
+    "development_tools"
+    "container_tools"
+    "dotnet_tools"
+    "python_environment"
+    "shell_environment"
 )
 
 current_step=0
@@ -91,7 +122,7 @@ show_progress "$current_step" "$total_steps" "Validation Progress"
 
 basic_tools=("git" "curl" "wget" "vim" "tmux" "zsh")
 for tool in "${basic_tools[@]}"; do
-  check_command "$tool" "${tool^}"
+    check_command "$tool" "${tool^}"
 done
 
 # Step 2: Check modern CLI tools
@@ -101,19 +132,19 @@ echo "🛠️ [$current_step/$total_steps] Checking Modern CLI Tools:"
 show_progress "$current_step" "$total_steps" "Validation Progress"
 
 declare -A modern_tools=(
-  ["bat"]="bat (cat replacement)"
-  ["ripgrep"]="ripgrep (grep replacement)"
-  ["fd"]="fd (find replacement)"
-  ["fzf"]="fzf (fuzzy finder)"
-  ["eza"]="eza (ls replacement)"
-  ["duf"]="duf (df replacement)"
-  ["dust"]="dust (du replacement)"
-  ["starship"]="Starship prompt"
-  ["zoxide"]="zoxide (cd replacement)"
+    ["bat"]="bat (cat replacement)"
+    ["ripgrep"]="ripgrep (grep replacement)"
+    ["fd"]="fd (find replacement)"
+    ["fzf"]="fzf (fuzzy finder)"
+    ["eza"]="eza (ls replacement)"
+    ["duf"]="duf (df replacement)"
+    ["dust"]="dust (du replacement)"
+    ["starship"]="Starship prompt"
+    ["zoxide"]="zoxide (cd replacement)"
 )
 
 for tool in "${!modern_tools[@]}"; do
-  check_command "$tool" "${modern_tools[$tool]}"
+    check_command "$tool" "${modern_tools[$tool]}"
 done
 
 # Step 3: Check language runtimes
@@ -125,10 +156,10 @@ show_progress "$current_step" "$total_steps" "Validation Progress"
 language_tools=("node" "npm" "python" "pip" "pyenv" "nvm")
 
 for tool in "${language_tools[@]}"; do
-  check_command "$tool" "${tool^}"
+    check_command "$tool" "${tool^}"
 done
 
-# Step 4: Check development tools  
+# Step 4: Check development tools
 ((current_step++))
 echo ""
 echo "💻 [$current_step/$total_steps] Checking Development Tools:"
@@ -144,7 +175,7 @@ if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
     else
         log_warning "VS Code (Windows) not found - install on Windows for WSL2 integration"
     fi
-    
+
     if [ -f "/mnt/c/Program Files/Microsoft VS Code Insiders/bin/code-insiders.cmd" ]; then
         log_success "VS Code Insiders (Windows) is accessible from WSL2"
     else
@@ -183,7 +214,7 @@ echo "🐍 Checking Python Environment:"
 if command -v python >/dev/null 2>&1; then
     echo "Python version: $(python --version)"
     echo "Python path: $(which python)"
-    
+
     # Check common Python packages
     check_python_package "pip"
     check_python_package "numpy" || true
@@ -196,7 +227,7 @@ echo "📦 Checking Node.js Environment:"
 if command -v node >/dev/null 2>&1; then
     echo "Node.js version: $(node --version)"
     echo "npm version: $(npm --version)"
-    
+
     # Check common global packages
     check_node_package "typescript" || true
     check_node_package "eslint" || true
@@ -236,7 +267,7 @@ fi
 if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
     echo ""
     echo "🧠 Checking WSL Configuration:"
-    
+
     if [ -f "/etc/wsl.conf" ]; then
         log_success "/etc/wsl.conf exists"
         if grep -q "systemd=true" /etc/wsl.conf; then
@@ -247,7 +278,7 @@ if [[ "$ENV_TYPE" == "$ENV_WSL" ]]; then
     else
         log_error "/etc/wsl.conf not found"
     fi
-    
+
     if is_systemd_running; then
         log_success "systemd is running"
     else

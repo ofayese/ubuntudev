@@ -4,20 +4,30 @@
 # Last updated: 2025-06-13
 set -euo pipefail
 
-# shellcheck disable=SC2034  # VERSION used in logging/reporting
-readonly VERSION="1.0.0"
+# Use declare first, then make readonly to avoid redeclaration issues
+# when multiple scripts define the same constants
+# VERSION is used for logging/reporting and debugging
+declare VERSION="1.0.0"
+export VERSION
+readonly VERSION
 
 # Script directory resolution - declare and assign separately to avoid masking return values
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-# Dry-run mode support
-readonly DRY_RUN="${DRY_RUN:-false}"
+# Global environment variables - export to be available in sourced scripts
+# Use conditional declaration to avoid conflicts with other scripts
+if [[ -z "${DRY_RUN+x}" ]]; then
+  DRY_RUN="${DRY_RUN:-false}"
+  export DRY_RUN
+fi
 
 # Operating system detection for cross-platform compatibility
 # shellcheck disable=SC2034  # OS_TYPE may be used by sourced utilities
-OS_TYPE="$(uname -s)"
-readonly OS_TYPE
+if [[ -z "${OS_TYPE+x}" ]]; then
+  OS_TYPE="$(uname -s)"
+  export OS_TYPE
+fi
 
 # Source utility modules with error checking
 source "$SCRIPT_DIR/util-log.sh" || {
@@ -49,7 +59,10 @@ COMPONENT_FLAGS=()
 # Parse flags
 while [[ $# -gt 0 ]]; do
   case "$1" in
-  --skip-prereqs) SKIP_PREREQS=true ;;
+  --skip-prereqs)
+    # shellcheck disable=SC2034  # SKIP_PREREQS may be used by sourced scripts
+    SKIP_PREREQS=true
+    ;;
   --resume) RESUME=true ;;
   --graph) GRAPH=true ;;
   --validate) VALIDATE=true ;;

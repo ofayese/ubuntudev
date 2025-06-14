@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-# env-detect.sh - Detect and report the current environment type
+# env-detect.sh - Detect and report the current environment
 set -euo pipefail
+
+# Script version and last updated timestamp
+readonly VERSION="1.0.0"
+readonly LAST_UPDATED="2025-06-13"
+
+# Cross-platform support
+OS_TYPE="$(uname -s)"
+readonly OS_TYPE
 
 # Function to display usage information
 show_usage() {
@@ -17,6 +25,9 @@ Options:
     -q, --quiet         Suppress all output except the environment type
     --json              Output result in JSON format
     --version           Show script version information
+
+Environment Variables:
+    DRY_RUN             Set to "true" to enable dry-run mode (no changes made)
 
 Output:
     Prints one of the following environment types:
@@ -36,7 +47,8 @@ Exit Codes:
     126 Permission denied
 
 Author: Ubuntu Development Environment Setup
-Version: 1.0.0
+Version: $VERSION
+Last Updated: $LAST_UPDATED
 EOF
 }
 
@@ -44,6 +56,7 @@ EOF
 VERBOSE=false
 QUIET=false
 JSON_OUTPUT=false
+readonly DRY_RUN="${DRY_RUN:-false}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -64,7 +77,7 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     --version)
-        echo "env-detect.sh version 1.0.0"
+        echo "env-detect.sh version $VERSION (Last updated: $LAST_UPDATED)"
         exit 0
         ;;
     *)
@@ -179,7 +192,8 @@ detect_and_report_environment() {
     "environment": "$env_type",
     "timestamp": "$(date -Iseconds)",
     "hostname": "$(hostname)",
-    "status": "success"
+    "status": "success",
+    "os_type": "$OS_TYPE"
 }
 EOF
         elif [[ "$QUIET" == "true" ]]; then
@@ -233,6 +247,12 @@ EOF
 
     return $exit_code
 }
+
+# Check if in DRY_RUN mode
+if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "Dry-run mode: Would detect environment but making no system changes"
+    exit 0
+fi
 
 # Execute detection with logging
 log_debug "Executing environment detection"
