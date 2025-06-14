@@ -695,8 +695,10 @@ check_log_rotation() {
   fi
 
   # Also check for log files older than 30 days
+  # shellcheck disable=SC2317
   local log_dir
   log_dir="$(dirname -- "$LOG_PATH")"
+  # shellcheck disable=SC2317
   if [[ -d "$log_dir" ]]; then
     # Find and remove log files older than 30 days
     find "$log_dir" -name "*.log.*" -type f -mtime +30 -exec rm -f {} \; 2>/dev/null || true

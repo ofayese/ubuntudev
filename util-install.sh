@@ -80,9 +80,12 @@ update_package_index() {
 # Install packages from apt with error handling and timeout protection
 safe_apt_install() {
   init_logging
-  local packages=("$@")
-  local failed_packages=()
-  local timeout=120 # 2 minutes per package
+  local packages
+  packages=("$@")
+  local failed_packages
+  failed_packages=()
+  local timeout
+  timeout=120 # 2 minutes per package
 
   update_package_index
 
@@ -109,9 +112,11 @@ safe_apt_install() {
 
 # Legacy function for compatibility - redirects to safe_apt_install
 install_packages() {
-  local pkgs=("$@")
+  local pkgs
+  pkgs=("$@")
   if [[ "$ENV_TYPE" == "WSL2" && -x "$(command -v brew)" ]]; then
-    local failed=()
+    local failed
+    failed=()
     for p in "${pkgs[@]}"; do
       log_info "Installing $p via brew..."
       brew install "$p" || failed+=("$p")
@@ -128,9 +133,12 @@ install_packages() {
 # Install snap package with fallback to apt and timeout protection
 safe_install_snap() {
   init_logging
-  local package="$1"
-  local classic_flag="${2:-}"
-  local snap_timeout=180 # 3 minutes for snap operations
+  local package
+  package="$1"
+  local classic_flag
+  classic_flag="${2:-}"
+  local snap_timeout
+  snap_timeout=180 # 3 minutes for snap operations
 
   log_substep "Preparing to install $package" "IN PROGRESS"
 
@@ -174,16 +182,22 @@ safe_install_snap() {
 
 # Legacy function for compatibility
 install_snap() {
-  local s="$1" c="${2:-}"
+  local s
+  s="$1"
+  local c
+  c="${2:-}"
   safe_install_snap "$s" "$c"
 }
 
 # Install a .deb package file (consolidated from util-packages.sh)
 safe_install_deb() {
   init_logging
-  local url="$1"
-  local pkg_name="${2:-$(basename "$url" .deb)}"
-  local temp_file="/tmp/${pkg_name}_$(date +%s).deb"
+  local url
+  url="$1"
+  local pkg_name
+  pkg_name="${2:-$(basename "$url" .deb)}"
+  local temp_file
+  temp_file="/tmp/${pkg_name}_$(date +%s).deb"
 
   log_info "Downloading $pkg_name from $url..."
   if wget -q -O "$temp_file" "$url"; then
@@ -211,17 +225,24 @@ safe_install_deb() {
 
 # Legacy function for compatibility
 install_deb_package() {
-  local url="$1" name="${2:-$(basename "$url" .deb)}"
+  local url
+  url="$1"
+  local name
+  name="${2:-$(basename "$url" .deb)}"
   safe_install_deb "$url" "$name"
 }
 
 # Download and install a tool from GitHub releases (consolidated from util-packages.sh)
 install_from_github() {
   init_logging
-  local repo="$1"        # GitHub repository (e.g., "eza-community/eza")
-  local pattern="$2"     # File pattern to download (e.g., "eza_.*_amd64.deb")
-  local install_cmd="$3" # Command to run for installation, use $1 as placeholder for the download path
-  local binary_name="${4:-$(echo "$repo" | cut -d/ -f2)}"
+  local repo
+  repo="$1" # GitHub repository (e.g., "eza-community/eza")
+  local pattern
+  pattern="$2" # File pattern to download (e.g., "eza_.*_amd64.deb")
+  local install_cmd
+  install_cmd="$3" # Command to run for installation, use $1 as placeholder for the download path
+  local binary_name
+  binary_name="${4:-$(echo "$repo" | cut -d/ -f2)}"
 
   # Check if already installed
   if command_exists "$binary_name"; then
@@ -246,7 +267,8 @@ install_from_github() {
   fi
 
   # Download the file
-  local temp_file="/tmp/${binary_name}_download"
+  local temp_file
+  temp_file="/tmp/${binary_name}_download"
   log_info "Downloading from $download_url"
 
   if wget -q -O "$temp_file" "$download_url"; then
@@ -278,8 +300,10 @@ install_from_github() {
 # Add an APT repository with proper error handling (from util-packages.sh)
 safe_add_apt_repository() {
   init_logging
-  local repo="$1"
-  local desc="${2:-APT repository}"
+  local repo
+  repo="$1"
+  local desc
+  desc="${2:-APT repository}"
 
   log_info "Adding $desc ($repo)..."
 

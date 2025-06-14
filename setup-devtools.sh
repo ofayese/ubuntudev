@@ -9,11 +9,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
 # Source utility modules
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/util-log.sh" || {
   echo "FATAL: Failed to source util-log.sh" >&2
   exit 1
 }
 
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/util-install.sh" || {
   echo "FATAL: Failed to source util-install.sh" >&2
   exit 1

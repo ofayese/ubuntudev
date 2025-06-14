@@ -50,8 +50,7 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-# Source utility modules with error checking
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 readonly SCRIPT_DIR
 
 source "$SCRIPT_DIR/util-log.sh" || {
@@ -69,16 +68,20 @@ source "$SCRIPT_DIR/util-install.sh" || {
 
 # Secure download and validation function
 validate_and_download() {
-  local url="$1"
-  local output_file="$2"
-  local description="$3"
+  local url
+  url="$1"
+  local output_file
+  output_file="$2"
+  local description
+  description="$3"
 
   # Extract domain for validation
   local domain
   domain=$(echo "$url" | sed -n 's|^https://\([^/]*\).*|\1|p')
 
   # Validate domain is in trusted list
-  local is_trusted=false
+  local is_trusted
+  is_trusted=false
   for trusted_domain in "${TRUSTED_DOMAINS[@]}"; do
     if [[ "$domain" == "$trusted_domain" || "$domain" == *".$trusted_domain" ]]; then
       is_trusted=true
@@ -186,7 +189,8 @@ install_starship() {
 }
 
 # Define installation steps for progress tracking
-declare -a SETUP_STEPS=(
+declare -a SETUP_STEPS
+SETUP_STEPS=(
   "fonts_and_terminal"
   "alacritty_config"
   "tmux_setup"

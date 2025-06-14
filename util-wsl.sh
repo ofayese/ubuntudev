@@ -209,7 +209,8 @@ setup_windows_symlinks() {
   log_info "Creating common Windows path symlinks..."
 
   # Define essential paths to link (commonly used directories)
-  local WIN_PATHS=(
+  local WIN_PATHS
+  WIN_PATHS=(
     "/c/Users/$WIN_USERNAME/Desktop:$HOME/Desktop"
     "/c/Users/$WIN_USERNAME/Documents:$HOME/Documents"
     "/c/Users/$WIN_USERNAME/Downloads:$HOME/Downloads"
@@ -217,7 +218,8 @@ setup_windows_symlinks() {
   )
 
   # Define optional paths (may not exist or may cause permission issues)
-  local OPTIONAL_PATHS=(
+  local OPTIONAL_PATHS
+  OPTIONAL_PATHS=(
     "/c/Users/$WIN_USERNAME/Pictures:$HOME/Pictures"
     "/c/Users/$WIN_USERNAME/AppData/Local:$HOME/AppData"
   )
@@ -340,7 +342,8 @@ optimize_wsl_performance() {
   # Create .wslconfig in Windows home if it doesn't exist
   local WIN_USERNAME
   WIN_USERNAME=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-  local WSLCONFIG_PATH="/mnt/c/Users/$WIN_USERNAME/.wslconfig"
+  local WSLCONFIG_PATH
+  WSLCONFIG_PATH="/mnt/c/Users/$WIN_USERNAME/.wslconfig"
 
   if [ ! -f "$WSLCONFIG_PATH" ]; then
     log_info "Creating .wslconfig in Windows home directory..."

@@ -85,13 +85,17 @@ start_spinner "Installing Miniconda"
 if [ -d "$HOME/miniconda" ]; then
     log_info "Miniconda is already installed, skipping installation"
 else
-    cd /tmp || { log_error "Failed to change to /tmp directory"; finish_logging; exit 1; }
+    cd /tmp || {
+        log_error "Failed to change to /tmp directory"
+        finish_logging
+        exit 1
+    }
     if curl -s -o miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh; then
         if bash miniconda.sh -b -p "$HOME/miniconda"; then
             export PATH="$HOME/miniconda/bin:$PATH"
             # Check if PATH is already set in .bashrc
             if ! grep -q 'export PATH="$HOME/miniconda/bin:$PATH"' ~/.bashrc; then
-                echo 'export PATH="$HOME/miniconda/bin:$PATH"' >> ~/.bashrc
+                echo 'export PATH="$HOME/miniconda/bin:$PATH"' >>~/.bashrc
             fi
             log_success "Miniconda installed successfully"
         else
@@ -114,10 +118,13 @@ start_spinner "Installing Python data science packages"
 
 # Function to safely install pip packages
 install_pip_package() {
-    local package=$1
-    local pip_command=${2:-pip3}
-    local extra_args=${3:-}
-    
+    local package
+    package=$1
+    local pip_command
+    pip_command=${2:-pip3}
+    local extra_args
+    extra_args=${3:-}
+
     log_info "Installing $package"
     if $pip_command install $package $extra_args; then
         log_success "Installed $package"
@@ -144,7 +151,7 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 # Try to find a suitable Python version for TensorFlow
 python_versions=("python3.11" "python3.10" "python3.9" "python3.8" "python3")
 for py_version in "${python_versions[@]}"; do
-    if command -v $py_version &> /dev/null; then
+    if command -v $py_version &>/dev/null; then
         log_info "Using $py_version for TensorFlow installation"
         $py_version -m pip install --upgrade pip
         $py_version -m pip install tensorflow keras opencv-python || log_warning "TensorFlow installation failed with $py_version"

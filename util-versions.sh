@@ -50,6 +50,7 @@ fi
 # ------------------------------------------------------------------------------
 
 if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
+  # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/util-log.sh" || {
     echo "[ERROR] Failed to source util-log.sh" >&2
     exit 1
@@ -57,6 +58,7 @@ if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
 fi
 
 if [[ -z "${UTIL_ENV_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-env.sh" ]]; then
+  # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/util-env.sh" || {
     echo "[ERROR] Failed to source util-env.sh" >&2
     exit 1
@@ -227,7 +229,8 @@ declare -A INSTALLATION_BACKUPS=()
 
 create_installation_backup() {
   local component="$1"
-  local backup_id="backup_$(date +%s)"
+  local backup_id
+  backup_id="backup_$(date +%s)"
 
   # Create backup directory
   local backup_dir="/tmp/${component}_${backup_id}"
@@ -243,17 +246,17 @@ create_installation_backup() {
   # Backup component directory if it exists
   case "$component" in
   "nvm")
-    [[ -d "$HOME/.nvm" ]] && cp -r "$HOME/.nvm" "$backup_dir/nvm_backup" 2>/dev/null
+    [[ -d "$HOME/.nvm" ]] && cp -r "$HOME/.nvm" "$backup_dir/nvm_backup" 2>/dev/null || true
     ;;
   "pyenv")
-    [[ -d "$HOME/.pyenv" ]] && cp -r "$HOME/.pyenv" "$backup_dir/pyenv_backup" 2>/dev/null
+    [[ -d "$HOME/.pyenv" ]] && cp -r "$HOME/.pyenv" "$backup_dir/pyenv_backup" 2>/dev/null || true
     ;;
   "sdkman")
-    [[ -d "$HOME/.sdkman" ]] && cp -r "$HOME/.sdkman" "$backup_dir/sdkman_backup" 2>/dev/null
+    [[ -d "$HOME/.sdkman" ]] && cp -r "$HOME/.sdkman" "$backup_dir/sdkman_backup" 2>/dev/null || true
     ;;
   "rust")
-    [[ -d "$HOME/.cargo" ]] && cp -r "$HOME/.cargo" "$backup_dir/cargo_backup" 2>/dev/null
-    [[ -d "$HOME/.rustup" ]] && cp -r "$HOME/.rustup" "$backup_dir/rustup_backup" 2>/dev/null
+    [[ -d "$HOME/.cargo" ]] && cp -r "$HOME/.cargo" "$backup_dir/cargo_backup" 2>/dev/null || true
+    [[ -d "$HOME/.rustup" ]] && cp -r "$HOME/.rustup" "$backup_dir/rustup_backup" 2>/dev/null || true
     ;;
   esac
 
@@ -263,7 +266,7 @@ create_installation_backup() {
 
 rollback_installation() {
   local component="$1"
-  local backup_dir="${INSTALLATION_BACKUPS[$component]}"
+  local backup_dir="${INSTALLATION_BACKUPS[$component]:-}"
 
   if [[ -z "$backup_dir" ]] || [[ ! -d "$backup_dir" ]]; then
     log_warning "No backup found for $component"
@@ -285,28 +288,28 @@ rollback_installation() {
   # Restore component directory
   case "$component" in
   "nvm")
-    rm -rf "$HOME/.nvm" 2>/dev/null
-    [[ -d "$backup_dir/nvm_backup" ]] && cp -r "$backup_dir/nvm_backup" "$HOME/.nvm" 2>/dev/null
+    rm -rf "$HOME/.nvm" 2>/dev/null || true
+    [[ -d "$backup_dir/nvm_backup" ]] && cp -r "$backup_dir/nvm_backup" "$HOME/.nvm" 2>/dev/null || true
     ;;
   "pyenv")
-    rm -rf "$HOME/.pyenv" 2>/dev/null
-    [[ -d "$backup_dir/pyenv_backup" ]] && cp -r "$backup_dir/pyenv_backup" "$HOME/.pyenv" 2>/dev/null
+    rm -rf "$HOME/.pyenv" 2>/dev/null || true
+    [[ -d "$backup_dir/pyenv_backup" ]] && cp -r "$backup_dir/pyenv_backup" "$HOME/.pyenv" 2>/dev/null || true
     ;;
   "sdkman")
-    rm -rf "$HOME/.sdkman" 2>/dev/null
-    [[ -d "$backup_dir/sdkman_backup" ]] && cp -r "$backup_dir/sdkman_backup" "$HOME/.sdkman" 2>/dev/null
+    rm -rf "$HOME/.sdkman" 2>/dev/null || true
+    [[ -d "$backup_dir/sdkman_backup" ]] && cp -r "$backup_dir/sdkman_backup" "$HOME/.sdkman" 2>/dev/null || true
     ;;
   "rust")
-    rm -rf "$HOME/.cargo" 2>/dev/null
-    rm -rf "$HOME/.rustup" 2>/dev/null
-    [[ -d "$backup_dir/cargo_backup" ]] && cp -r "$backup_dir/cargo_backup" "$HOME/.cargo" 2>/dev/null
-    [[ -d "$backup_dir/rustup_backup" ]] && cp -r "$backup_dir/rustup_backup" "$HOME/.rustup" 2>/dev/null
+    rm -rf "$HOME/.cargo" 2>/dev/null || true
+    rm -rf "$HOME/.rustup" 2>/dev/null || true
+    [[ -d "$backup_dir/cargo_backup" ]] && cp -r "$backup_dir/cargo_backup" "$HOME/.cargo" 2>/dev/null || true
+    [[ -d "$backup_dir/rustup_backup" ]] && cp -r "$backup_dir/rustup_backup" "$HOME/.rustup" 2>/dev/null || true
     ;;
   esac
 
   # Cleanup backup
-  rm -rf "$backup_dir" 2>/dev/null
-  unset INSTALLATION_BACKUPS["$component"]
+  rm -rf "$backup_dir" 2>/dev/null || true
+  unset "INSTALLATION_BACKUPS[$component]"
 
   log_success "Rollback completed for $component"
   return 0
@@ -325,9 +328,9 @@ setup_with_error_handling() {
   if "$setup_function" "${args[@]}"; then
     log_success "$component installation completed successfully"
     # Cleanup backup on success
-    local backup_dir="${INSTALLATION_BACKUPS[$component]}"
-    [[ -n "$backup_dir" ]] && rm -rf "$backup_dir" 2>/dev/null
-    unset INSTALLATION_BACKUPS["$component"]
+    local backup_dir="${INSTALLATION_BACKUPS[$component]:-}"
+    [[ -n "$backup_dir" ]] && rm -rf "$backup_dir" 2>/dev/null || true
+    unset "INSTALLATION_BACKUPS[$component]"
     return 0
   else
     log_error "$component installation failed"
@@ -383,17 +386,17 @@ setup_nvm() {
   # Source NVM in the current shell
   export NVM_DIR="$HOME/.nvm"
   # shellcheck disable=SC1091
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  [[ -s "$NVM_DIR/nvm.sh" ]] && \. "$NVM_DIR/nvm.sh"
 
   # Add NVM to shell profiles if not already there
   for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    if [ -f "$PROFILE" ] && ! grep -q 'NVM_DIR' "$PROFILE"; then
+    if [[ -f "$PROFILE" ]] && ! grep -q 'NVM_DIR' "$PROFILE"; then
       {
         echo ''
         echo '# NVM Configuration'
         echo "export NVM_DIR=\"\$HOME/.nvm\""
-        echo "[ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\""
-        echo "[ -s \"\$NVM_DIR/bash_completion\" ] && \. \"\$NVM_DIR/bash_completion\""
+        echo "[[ -s \"\$NVM_DIR/nvm.sh\" ]] && \. \"\$NVM_DIR/nvm.sh\""
+        echo "[[ -s \"\$NVM_DIR/bash_completion\" ]] && \. \"\$NVM_DIR/bash_completion\""
       } >>"$PROFILE"
       log_success "Added NVM to $PROFILE"
     fi
@@ -459,7 +462,7 @@ setup_pyenv() {
 
   # Install pyenv
   log_info "Installing pyenv..."
-  if [ ! -d "$HOME/.pyenv" ]; then
+  if [[ ! -d "$HOME/.pyenv" ]]; then
     if ! validate_and_download "https://pyenv.run" "pyenv installer" "execute"; then
       log_error "Failed to securely install pyenv"
       finish_logging
@@ -475,7 +478,7 @@ setup_pyenv() {
 
   # Add pyenv to shell profiles
   for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    if [ -f "$PROFILE" ] && ! grep -q 'pyenv init' "$PROFILE"; then
+    if [[ -f "$PROFILE" ]] && ! grep -q 'pyenv init' "$PROFILE"; then
       {
         echo ''
         echo '# Pyenv Configuration'
@@ -536,7 +539,7 @@ setup_sdkman() {
   install_java21=$(normalize_boolean "$install_java21")
 
   # Install SDKMAN if not already installed
-  if [ ! -d "$HOME/.sdkman" ]; then
+  if [[ ! -d "$HOME/.sdkman" ]]; then
     log_info "Installing SDKMAN..."
     if ! validate_and_download "https://get.sdkman.io" "SDKMAN installer" "execute"; then
       log_error "Failed to securely install SDKMAN"
@@ -554,7 +557,7 @@ setup_sdkman() {
 
   # Add SDKMAN to shell profiles
   for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    if [ -f "$PROFILE" ] && ! grep -q 'sdkman-init.sh' "$PROFILE"; then
+    if [[ -f "$PROFILE" ]] && ! grep -q 'sdkman-init.sh' "$PROFILE"; then
       {
         echo ''
         echo '# SDKMAN Configuration'
@@ -611,7 +614,7 @@ setup_rustup() {
 
     # Add rustup to shell profiles
     for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-      if [ -f "$PROFILE" ] && ! grep -q 'cargo/env' "$PROFILE"; then
+      if [[ -f "$PROFILE" ]] && ! grep -q 'cargo/env' "$PROFILE"; then
         echo "source \"\$HOME/.cargo/env\"" >>"$PROFILE"
         log_success "Added Rust to $PROFILE"
       fi
@@ -653,7 +656,7 @@ setup_ghcup() {
 
     # Add GHCup to shell profiles
     for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-      if [ -f "$PROFILE" ] && ! grep -q '.ghcup/env' "$PROFILE"; then
+      if [[ -f "$PROFILE" ]] && ! grep -q '.ghcup/env' "$PROFILE"; then
         echo "source \"\$HOME/.ghcup/env\"" >>"$PROFILE"
         log_success "Added GHCup to $PROFILE"
       fi
@@ -682,7 +685,7 @@ setup_golang() {
   local version="${1:-latest}"
 
   # Install Go
-  if [ "$version" = "latest" ]; then
+  if [[ "$version" == "latest" ]]; then
     log_info "Installing latest Go version..."
     safe_apt_install golang-go
   else
@@ -697,7 +700,7 @@ setup_golang() {
 
   # Add Go to shell profiles
   for PROFILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    if [ -f "$PROFILE" ] && ! grep -q 'GOPATH=' "$PROFILE"; then
+    if [[ -f "$PROFILE" ]] && ! grep -q 'GOPATH=' "$PROFILE"; then
       {
         echo ''
         echo '# Go Configuration'
@@ -811,7 +814,7 @@ setup_multiple_parallel() {
       setup_rustup &
       ;;
     "golang")
-      setup_golang &
+      setup_golang "latest" &
       ;;
     *)
       log_warning "Unknown component: $component"
@@ -853,7 +856,7 @@ monitor_resource_usage() {
       echo "$timestamp,$memory_usage,$disk_usage,$cpu_usage" >>"$log_file"
 
       # Alert on extremely high resource usage
-      if (($(echo "$memory_usage > 95" | bc -l 2>/dev/null || echo 0))); then
+      if command -v bc >/dev/null 2>&1 && (($(echo "$memory_usage > 95" | bc -l 2>/dev/null || echo 0))); then
         log_warning "Critical memory usage detected: ${memory_usage}%"
       fi
 
@@ -861,7 +864,7 @@ monitor_resource_usage() {
     done
   ) &
 
-  echo $! # Return PID of background process
+  echo $! # Return PID
 }
 
 # Configure all shell profiles for NVM with optimized function
@@ -890,8 +893,669 @@ if command -v pyenv >/dev/null; then eval "$(pyenv init -)"; fi'
   done
 }
 
-# Main function for demonstration
+# Configure all shell profiles for SDKMAN with optimized function
+configure_sdkman_environment() {
+  local sdkman_config='
+# SDKMAN Configuration
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$sdkman_config" "SDKMAN Configuration"
+  done
+}
+
+# Configure all shell profiles for Rust with optimized function
+configure_rust_environment() {
+  local rust_config='
+# Rust Configuration
+source "$HOME/.cargo/env"'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$rust_config" "Rust Configuration"
+  done
+}
+
+# Configure all shell profiles for GHCup with optimized function
+configure_ghcup_environment() {
+  local ghcup_config='
+# GHCup Configuration
+source "$HOME/.ghcup/env"'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$ghcup_config" "GHCup Configuration"
+  done
+}
+
+# Configure all shell profiles for Go with optimized function
+configure_golang_environment() {
+  local golang_config='
+# Go Configuration
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOPATH/bin'
+
+  for profile in "bashrc" "zshrc" "profile"; do
+    queue_profile_update "$profile" "$golang_config" "Go Configuration"
+  done
+}
+
+# --- Enhanced Installation Functions with Better Error Handling ---
+
+# Enhanced NVM setup with better error recovery
+setup_nvm_enhanced() {
+  local install_latest=${1:-true}
+  local install_lts=${2:-true}
+  local specific_version=${3:-""}
+
+  setup_with_error_handling "nvm" setup_nvm "$install_latest" "$install_lts"
+  local exit_code=$?
+
+  # Install specific version if requested
+  if [[ -n "$specific_version" ]] && [[ $exit_code -eq 0 ]]; then
+    log_info "Installing specific Node.js version: $specific_version"
+    if validate_version_string "$specific_version" "node"; then
+      # shellcheck disable=SC1091
+      [[ -s "$HOME/.nvm/nvm.sh" ]] && \. "$HOME/.nvm/nvm.sh"
+      nvm install "$specific_version" || log_warning "Failed to install Node.js $specific_version"
+    fi
+  fi
+
+  return $exit_code
+}
+
+# Enhanced Python setup with better version management
+setup_pyenv_enhanced() {
+  local python312=${1:-true}
+  local python311=${2:-true}
+  local python310=${3:-false}
+  local specific_version=${4:-""}
+
+  # Validate additional parameters
+  if ! validate_boolean_param "$python310" "python310"; then
+    return 1
+  fi
+
+  python310=$(normalize_boolean "$python310")
+
+  setup_with_error_handling "pyenv" setup_pyenv_internal "$python312" "$python311" "$python310" "$specific_version"
+}
+
+# Internal pyenv setup function with extended version support
+setup_pyenv_internal() {
+  init_logging
+  local python312=${1:-true}
+  local python311=${2:-true}
+  local python310=${3:-false}
+  local specific_version=${4:-""}
+
+  # Validate parameters
+  if ! validate_boolean_param "$python312" "python312" ||
+    ! validate_boolean_param "$python311" "python311" ||
+    ! validate_boolean_param "$python310" "python310"; then
+    finish_logging
+    return 1
+  fi
+
+  # Normalize boolean parameters
+  python312=$(normalize_boolean "$python312")
+  python311=$(normalize_boolean "$python311")
+  python310=$(normalize_boolean "$python310")
+
+  # Install pyenv dependencies with better error handling
+  log_info "Installing pyenv dependencies..."
+  if ! sudo apt-get update -q; then
+    log_warning "Failed to update package lists"
+  fi
+
+  local dependencies=(
+    build-essential libssl-dev zlib1g-dev libbz2-dev
+    libreadline-dev libsqlite3-dev wget curl llvm
+    libncurses5-dev libncursesw5-dev xz-utils tk-dev
+    libffi-dev liblzma-dev python3-openssl git
+  )
+
+  for dep in "${dependencies[@]}"; do
+    if ! sudo apt-get install -y "$dep"; then
+      log_warning "Failed to install dependency: $dep"
+    fi
+  done
+
+  # Install pyenv
+  log_info "Installing pyenv..."
+  if [[ ! -d "$HOME/.pyenv" ]]; then
+    if ! validate_and_download "https://pyenv.run" "pyenv installer" "execute"; then
+      log_error "Failed to securely install pyenv"
+      finish_logging
+      return 1
+    fi
+  else
+    log_info "pyenv already installed, updating..."
+    (cd "$HOME/.pyenv" && git pull) || {
+      log_warning "Failed to update pyenv"
+    }
+  fi
+
+  # Configure pyenv environment
+  configure_pyenv_environment
+
+  # Load pyenv in current shell
+  export PYENV_ROOT="$HOME/.pyenv"
+  export PATH="$PYENV_ROOT/bin:$PATH"
+  if command -v pyenv >/dev/null 2>&1; then
+    eval "$(pyenv init -)"
+  fi
+
+  # Install Python versions with better error handling
+  local versions_to_install=()
+
+  if [[ "$python312" == "true" ]]; then
+    versions_to_install+=("3.12.0")
+  fi
+
+  if [[ "$python311" == "true" ]]; then
+    versions_to_install+=("3.11.8")
+  fi
+
+  if [[ "$python310" == "true" ]]; then
+    versions_to_install+=("3.10.13")
+  fi
+
+  if [[ -n "$specific_version" ]]; then
+    if validate_version_string "$specific_version" "python"; then
+      versions_to_install+=("$specific_version")
+    fi
+  fi
+
+  # Install versions with retry logic
+  for version in "${versions_to_install[@]}"; do
+    log_info "Installing Python $version..."
+    local retry_count=0
+    local max_retries=2
+
+    while [[ $retry_count -lt $max_retries ]]; do
+      if pyenv install -s "$version"; then
+        log_success "Successfully installed Python $version"
+        break
+      else
+        ((retry_count++))
+        if [[ $retry_count -lt $max_retries ]]; then
+          log_warning "Failed to install Python $version, retrying... ($retry_count/$max_retries)"
+          sleep 5
+        else
+          log_error "Failed to install Python $version after $max_retries attempts"
+        fi
+      fi
+    done
+  done
+
+  # Set global Python version with priority order
+  local global_version=""
+  for version in "3.12.0" "3.11.8" "3.10.13"; do
+    if pyenv versions | grep -q "$version"; then
+      global_version="$version"
+      break
+    fi
+  done
+
+  if [[ -n "$global_version" ]]; then
+    pyenv global "$global_version"
+    log_success "Set Python $global_version as global version"
+  fi
+
+  # Print installation summary
+  log_success "Python versions installed: $(pyenv versions --bare | tr '\n' ' ')"
+  if command -v python >/dev/null 2>&1; then
+    log_success "Current Python: $(python --version) at $(pyenv which python)"
+  fi
+
+  finish_logging
+}
+
+# Enhanced Java setup with better version management
+setup_sdkman_enhanced() {
+  local install_java17=${1:-true}
+  local install_java21=${2:-true}
+  local install_java11=${3:-false}
+  local specific_version=${4:-""}
+
+  # Validate additional parameters
+  if ! validate_boolean_param "$install_java11" "install_java11"; then
+    return 1
+  fi
+
+  install_java11=$(normalize_boolean "$install_java11")
+
+  setup_with_error_handling "sdkman" setup_sdkman_internal "$install_java17" "$install_java21" "$install_java11" "$specific_version"
+}
+
+# Internal SDKMAN setup function with extended version support
+setup_sdkman_internal() {
+  init_logging
+  local install_java17=${1:-true}
+  local install_java21=${2:-true}
+  local install_java11=${3:-false}
+  local specific_version=${4:-""}
+
+  # Validate parameters
+  if ! validate_boolean_param "$install_java17" "install_java17" ||
+    ! validate_boolean_param "$install_java21" "install_java21" ||
+    ! validate_boolean_param "$install_java11" "install_java11"; then
+    finish_logging
+    return 1
+  fi
+
+  # Normalize boolean parameters
+  install_java17=$(normalize_boolean "$install_java17")
+  install_java21=$(normalize_boolean "$install_java21")
+  install_java11=$(normalize_boolean "$install_java11")
+
+  # Install SDKMAN if not already installed
+  if [[ ! -d "$HOME/.sdkman" ]]; then
+    log_info "Installing SDKMAN..."
+    if ! validate_and_download "https://get.sdkman.io" "SDKMAN installer" "execute"; then
+      log_error "Failed to securely install SDKMAN"
+      finish_logging
+      return 1
+    fi
+  else
+    log_info "SDKMAN already installed, updating..."
+    # shellcheck disable=SC1091
+    [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+    sdk update || log_warning "Failed to update SDKMAN"
+  fi
+
+  # Configure SDKMAN environment
+  configure_sdkman_environment
+
+  # Source SDKMAN
+  export SDKMAN_DIR="$HOME/.sdkman"
+  # shellcheck disable=SC1091
+  [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+  # Install Java versions with better error handling
+  local java_versions=()
+
+  if [[ "$install_java21" == "true" ]]; then
+    java_versions+=("21.0-tem")
+  fi
+
+  if [[ "$install_java17" == "true" ]]; then
+    java_versions+=("17.0-tem")
+  fi
+
+  if [[ "$install_java11" == "true" ]]; then
+    java_versions+=("11.0-tem")
+  fi
+
+  if [[ -n "$specific_version" ]]; then
+    if validate_version_string "$specific_version" "java"; then
+      java_versions+=("$specific_version")
+    fi
+  fi
+
+  # Install versions with retry logic
+  for version in "${java_versions[@]}"; do
+    log_info "Installing Java $version..."
+    local retry_count=0
+    local max_retries=2
+
+    while [[ $retry_count -lt $max_retries ]]; do
+      if sdk install java "$version" || sdk install java "${version}-tem" || sdk install java "${version}.0-tem"; then
+        log_success "Successfully installed Java $version"
+        break
+      else
+        ((retry_count++))
+        if [[ $retry_count -lt $max_retries ]]; then
+          log_warning "Failed to install Java $version, retrying... ($retry_count/$max_retries)"
+          sleep 5
+        else
+          log_error "Failed to install Java $version after $max_retries attempts"
+        fi
+      fi
+    done
+  done
+
+  # Set default Java version with priority order
+  local default_version=""
+  for version in "17.0-tem" "21.0-tem" "11.0-tem"; do
+    if sdk list java | grep -q "installed" | grep -q "$version"; then
+      default_version="$version"
+      break
+    fi
+  done
+
+  if [[ -n "$default_version" ]]; then
+    sdk default java "$default_version" 2>/dev/null || log_warning "Could not set Java $default_version as default"
+    log_success "Set Java $default_version as default version"
+  fi
+
+  # Print installation summary
+  if command -v java >/dev/null 2>&1; then
+    local java_version
+    java_version="$(java -version 2>&1 | grep version | cut -d '"' -f 2)"
+    log_success "Java versions installed: $(sdk list java | grep installed | tr '\n' ' ')"
+    log_success "Default Java: $java_version"
+  fi
+
+  finish_logging
+}
+
+# --- Utility Functions for Version Management ---
+
+# List installed versions for a specific manager
+list_installed_versions() {
+  local manager="$1"
+
+  case "$manager" in
+  "nvm" | "node")
+    if command -v nvm >/dev/null 2>&1; then
+      echo "Node.js versions (NVM):"
+      nvm list
+    else
+      echo "NVM not installed"
+    fi
+    ;;
+  "pyenv" | "python")
+    if command -v pyenv >/dev/null 2>&1; then
+      echo "Python versions (pyenv):"
+      pyenv versions
+    else
+      echo "pyenv not installed"
+    fi
+    ;;
+  "sdkman" | "java")
+    if [[ -d "$HOME/.sdkman" ]]; then
+      # shellcheck disable=SC1091
+      [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+      echo "Java versions (SDKMAN):"
+      sdk list java | grep installed || echo "No Java versions installed"
+    else
+      echo "SDKMAN not installed"
+    fi
+    ;;
+  "rustup" | "rust")
+    if command -v rustup >/dev/null 2>&1; then
+      echo "Rust toolchains:"
+      rustup toolchain list
+    else
+      echo "Rustup not installed"
+    fi
+    ;;
+  "go" | "golang")
+    if command -v go >/dev/null 2>&1; then
+      echo "Go version:"
+      go version
+    else
+      echo "Go not installed"
+    fi
+    ;;
+  *)
+    echo "Unknown version manager: $manager"
+    echo "Supported managers: nvm, pyenv, sdkman, rustup, golang"
+    return 1
+    ;;
+  esac
+}
+
+# Switch to a specific version
+switch_version() {
+  local manager="$1"
+  local version="$2"
+
+  if [[ -z "$version" ]]; then
+    log_error "Version not specified"
+    return 1
+  fi
+
+  case "$manager" in
+  "nvm" | "node")
+    if command -v nvm >/dev/null 2>&1; then
+      if validate_version_string "$version" "node"; then
+        nvm use "$version"
+      fi
+    else
+      log_error "NVM not installed"
+      return 1
+    fi
+    ;;
+  "pyenv" | "python")
+    if command -v pyenv >/dev/null 2>&1; then
+      if validate_version_string "$version" "python"; then
+        pyenv global "$version"
+      fi
+    else
+      log_error "pyenv not installed"
+      return 1
+    fi
+    ;;
+  "sdkman" | "java")
+    if [[ -d "$HOME/.sdkman" ]]; then
+      # shellcheck disable=SC1091
+      [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+      if validate_version_string "$version" "java"; then
+        sdk use java "$version"
+      fi
+    else
+      log_error "SDKMAN not installed"
+      return 1
+    fi
+    ;;
+  "rustup" | "rust")
+    if command -v rustup >/dev/null 2>&1; then
+      rustup default "$version"
+    else
+      log_error "Rustup not installed"
+      return 1
+    fi
+    ;;
+  *)
+    log_error "Version switching not supported for: $manager"
+    return 1
+    ;;
+  esac
+}
+
+# Clean up old versions
+cleanup_old_versions() {
+  local manager="$1"
+  local keep_count="${2:-3}"
+
+  case "$manager" in
+  "nvm" | "node")
+    if command -v nvm >/dev/null 2>&1; then
+      log_info "Cleaning up old Node.js versions (keeping $keep_count most recent)..."
+      # Implementation would go here
+      log_info "Manual cleanup recommended: nvm ls and nvm uninstall <version>"
+    fi
+    ;;
+  "pyenv" | "python")
+    if command -v pyenv >/dev/null 2>&1; then
+      log_info "Cleaning up old Python versions (keeping $keep_count most recent)..."
+      # Implementation would go here
+      log_info "Manual cleanup recommended: pyenv versions and pyenv uninstall <version>"
+    fi
+    ;;
+  *)
+    log_warning "Cleanup not implemented for: $manager"
+    ;;
+  esac
+}
+
+# --- Main Setup Function ---
+
+# Main function to set up all version managers
+setup_all_version_managers() {
+  local nvm_enabled=${1:-true}
+  local pyenv_enabled=${2:-true}
+  local sdkman_enabled=${3:-true}
+  local rustup_enabled=${4:-false}
+  local golang_enabled=${5:-false}
+  local ghcup_enabled=${6:-false}
+  local parallel_install=${7:-false}
+
+  # Validate all parameters
+  for param in "$nvm_enabled" "$pyenv_enabled" "$sdkman_enabled" "$rustup_enabled" "$golang_enabled" "$ghcup_enabled" "$parallel_install"; do
+    if ! validate_boolean_param "$param" "setup parameter"; then
+      return 1
+    fi
+  done
+
+  # Normalize parameters
+  nvm_enabled=$(normalize_boolean "$nvm_enabled")
+  pyenv_enabled=$(normalize_boolean "$pyenv_enabled")
+  sdkman_enabled=$(normalize_boolean "$sdkman_enabled")
+  rustup_enabled=$(normalize_boolean "$rustup_enabled")
+  golang_enabled=$(normalize_boolean "$golang_enabled")
+  ghcup_enabled=$(normalize_boolean "$ghcup_enabled")
+  parallel_install=$(normalize_boolean "$parallel_install")
+
+  log_info "Starting version manager setup..."
+  log_info "Configuration: NVM=$nvm_enabled, pyenv=$pyenv_enabled, SDKMAN=$sdkman_enabled, Rust=$rustup_enabled, Go=$golang_enabled, Haskell=$ghcup_enabled"
+
+  # Collect components to install
+  local components=()
+  [[ "$nvm_enabled" == "true" ]] && components+=("nvm")
+  [[ "$pyenv_enabled" == "true" ]] && components+=("pyenv")
+  [[ "$sdkman_enabled" == "true" ]] && components+=("sdkman")
+  [[ "$rustup_enabled" == "true" ]] && components+=("rustup")
+  [[ "$golang_enabled" == "true" ]] && components+=("golang")
+  [[ "$ghcup_enabled" == "true" ]] && components+=("ghcup")
+
+  if [[ ${#components[@]} -eq 0 ]]; then
+    log_warning "No components selected for installation"
+    return 0
+  fi
+
+  # Install components
+  if [[ "$parallel_install" == "true" ]] && [[ ${#components[@]} -gt 1 ]]; then
+    log_info "Installing components in parallel..."
+    setup_multiple_parallel "${components[@]}"
+  else
+    log_info "Installing components sequentially..."
+    for component in "${components[@]}"; do
+      case "$component" in
+      "nvm")
+        setup_nvm_enhanced true true
+        ;;
+      "pyenv")
+        setup_pyenv_enhanced true true
+        ;;
+      "sdkman")
+        setup_sdkman_enhanced true true
+        ;;
+      "rustup")
+        setup_with_error_handling "rustup" setup_rustup
+        ;;
+      "golang")
+        setup_with_error_handling "golang" setup_golang "latest"
+        ;;
+      "ghcup")
+        setup_with_error_handling "ghcup" setup_ghcup
+        ;;
+      esac
+    done
+
+    # Apply all profile updates at once
+    apply_all_profile_updates
+  fi
+
+  log_success "Version manager setup completed!"
+  log_info "Please restart your shell or run 'source ~/.bashrc' to use the installed tools"
+}
+
+# --- Help and Usage Functions ---
+
+show_usage() {
+  cat <<EOF
+Usage: util-versions.sh [COMMAND] [OPTIONS]
+
+COMMANDS:
+  setup-all [nvm] [pyenv] [sdkman] [rust] [go] [haskell] [parallel]
+    Set up multiple version managers (default: nvm=true, pyenv=true, sdkman=true, others=false)
+    
+  setup-nvm [install_latest] [install_lts] [specific_version]
+    Set up Node Version Manager
+    
+  setup-pyenv [python312] [python311] [python310] [specific_version]
+    Set up Python version manager
+    
+  setup-sdkman [java17] [java21] [java11] [specific_version]
+    Set up Java version manager
+    
+  setup-rust
+    Set up Rust toolchain
+    
+  setup-go [version]
+    Set up Go programming language
+    
+  setup-haskell
+    Set up Haskell toolchain
+    
+  list [manager]
+    List installed versions for a manager (nvm, pyenv, sdkman, rust, go)
+    
+  switch [manager] [version]
+    Switch to a specific version
+    
+  cleanup [manager] [keep_count]
+    Clean up old versions (keep_count defaults to 3)
+
+EXAMPLES:
+  $0 setup-all true true true false false false false
+  $0 setup-nvm true true "18.17.0"
+  $0 setup-pyenv true true false "3.11.5"
+  $0 list nvm
+  $0 switch pyenv 3.12.0
+
+Boolean parameters accept: true, false, 1, 0, yes, no, y, n (case insensitive)
+EOF
+}
+
+# Main execution logic
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo "Version manager utilities loaded. Use by sourcing this file."
-  exit 0
+  # Script is being executed directly
+  case "${1:-help}" in
+  "setup-all")
+    setup_all_version_managers "${2:-true}" "${3:-true}" "${4:-true}" "${5:-false}" "${6:-false}" "${7:-false}" "${8:-false}"
+    ;;
+  "setup-nvm")
+    setup_nvm_enhanced "${2:-true}" "${3:-true}" "${4:-}"
+    ;;
+  "setup-pyenv")
+    setup_pyenv_enhanced "${2:-true}" "${3:-true}" "${4:-false}" "${5:-}"
+    ;;
+  "setup-sdkman")
+    setup_sdkman_enhanced "${2:-true}" "${3:-true}" "${4:-false}" "${5:-}"
+    ;;
+  "setup-rust")
+    setup_with_error_handling "rustup" setup_rustup
+    ;;
+  "setup-go")
+    setup_with_error_handling "golang" setup_golang "${2:-latest}"
+    ;;
+  "setup-haskell")
+    setup_with_error_handling "ghcup" setup_ghcup
+    ;;
+  "list")
+    list_installed_versions "${2:-}"
+    ;;
+  "switch")
+    switch_version "${2:-}" "${3:-}"
+    ;;
+  "cleanup")
+    cleanup_old_versions "${2:-}" "${3:-3}"
+    ;;
+  "help" | "--help" | "-h")
+    show_usage
+    ;;
+  *)
+    echo "Unknown command: ${1:-}"
+    echo "Use '$0 help' for usage information"
+    exit 1
+    ;;
+  esac
+else
+  # Script is being sourced
+  log_info "Version manager utilities loaded successfully"
+  log_info "Available functions: setup_all_version_managers, setup_nvm_enhanced, setup_pyenv_enhanced, setup_sdkman_enhanced, list_installed_versions, switch_version"
 fi
