@@ -47,9 +47,12 @@ source "$SCRIPT_DIR/util-deps.sh" || {
   exit 1
 }
 
-readonly LOGFILE="/var/log/ubuntu-dev-tools.log"
+# Use user-accessible log location instead of system directory
+readonly LOGFILE="$HOME/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools.log"
 readonly STATE_FILE="$HOME/.ubuntu-devtools.state"
 
+# Create log directory if it doesn't exist
+mkdir -p "$(dirname "$LOGFILE")"
 init_logging "$LOGFILE"
 set_error_trap
 

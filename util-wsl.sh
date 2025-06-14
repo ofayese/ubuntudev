@@ -30,8 +30,11 @@ readonly OS_TYPE="$(uname -s)"
 # Dry-run mode support
 readonly DRY_RUN="${DRY_RUN:-false}"
 
-# shellcheck disable=SC2155  # SCRIPT_DIR assignment pattern
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Use existing SCRIPT_DIR if available, otherwise set it locally
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  # shellcheck disable=SC2155  # SCRIPT_DIR assignment pattern
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 # Source utility modules with error checking
 source "$SCRIPT_DIR/util-log.sh" || {

@@ -36,8 +36,10 @@ fi
 # Mark as loaded only after successful initialization
 readonly UTIL_DEPS_LOADED
 
-# Script directory - calculate locally or use existing
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# Script directory - use existing SCRIPT_DIR if available, otherwise calculate locally
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+fi
 
 source "$SCRIPT_DIR/util-log.sh" || {
   echo "FATAL: Failed to source util-log.sh" >&2
@@ -108,38 +110,51 @@ load_dependencies() {
   done
 }
 
-# Use function-local arrays to avoid global namespace pollution
+# Revert to a simpler implementation to avoid circular name reference issues
+# These declarations are okay here because they're being used by the functions below
+declare -a _resolved_components=()
+declare -A _mark_map=() _temp_map=()
+
+# Simple implementation that avoids nameref issues
 resolve_comp() {
   local c="$1"
-  local -n _temp_arr="$2"
-  local -n _mark_arr="$3"
-  local -n _resolved_arr="$4"
-
-  [[ -n "${_temp_arr[$c]:-}" ]] && {
-    log_error "Cycle at $c"
+  [[ -n "${_temp_map[$c]:-}" ]] && {
+    log_error "Cycle detected at component: $c"
     exit 1
   }
-  [[ -n "${_mark_arr[$c]:-}" ]] && return
-  _temp_arr["$c"]=1
-  for d in ${REQUIRES[$c]}; do
-    resolve_comp "$d" _temp_arr _mark_arr _resolved_arr
+  [[ -n "${_mark_map[$c]:-}" ]] && return
+
+  # Mark as being processed
+  _temp_map["$c"]=1
+
+  # Process dependencies
+  for d in ${REQUIRES[$c]:-}; do
+    resolve_comp "$d"
   done
-  _mark_arr["$c"]=1
-  unset "_temp_arr[$c]"
-  _resolved_arr+=("$c")
+
+  # Mark as resolved
+  _mark_map["$c"]=1
+  unset "_temp_map[$c]"
+  _resolved_components+=("$c")
 }
 
 resolve_selected() {
-  # Local arrays for resolution within this function call
-  local -a resolved=()
-  # shellcheck disable=SC2034  # TEMP is used via nameref in resolve_comp
-  local -A MARK=() TEMP=()
+  # Reset global resolution state
+  _resolved_components=()
+  _mark_map=()
+  _temp_map=()
 
-  # Resolve the requested components
+  # Process each requested component
   for s in "$@"; do
-    [[ -z "${MARK[$s]:-}" ]] && resolve_comp "$s" TEMP MARK resolved
+    if [[ -n "${COMPONENTS[*]}" && " ${COMPONENTS[*]} " != *" $s "* ]]; then
+      log_error "Unknown component: $s"
+      continue
+    fi
+    [[ -z "${_mark_map[$s]:-}" ]] && resolve_comp "$s"
   done
-  echo "${resolved[@]}"
+
+  # Return the resolved components
+  echo "${_resolved_components[@]:-}"
 }
 
 print_dependency_graph() {
