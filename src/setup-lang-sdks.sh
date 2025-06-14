@@ -274,8 +274,35 @@ if [ -d "$HOME/.ghcup" ] && command -v ghc &>/dev/null; then
     log_info "Haskell/GHCup is already installed, skipping installation..."
 else
     log_info "Installing Haskell via GHCup..."
-    # Install required dependencies
-    safe_apt_install build-essential curl libffi-dev libffi7 libgmp-dev libgmp10 libncurses-dev libncurses5 libtinfo5
+    # Install required dependencies (essential packages)
+    safe_apt_install build-essential curl libffi-dev libgmp-dev libgmp10 libncurses-dev
+
+    # Try to install libffi7 if available, but don't fail if not
+    safe_apt_install libffi7 || log_warning "libffi7 is not available, continuing with newer version"
+
+    # Handle ncurses and tinfo libraries with fallbacks for newer Ubuntu versions
+    if ! safe_apt_install libncurses5 2>/dev/null; then
+        log_warning "libncurses5 is not available in this Ubuntu version"
+        # Try newer version instead
+        safe_apt_install libncurses6 2>/dev/null || safe_apt_install libncurses6-dev 2>/dev/null || true
+    fi
+
+    if ! safe_apt_install libtinfo5 2>/dev/null; then
+        log_warning "libtinfo5 is not available in this Ubuntu version"
+        # Try newer version instead
+        safe_apt_install libtinfo6 2>/dev/null || safe_apt_install libtinfo-dev 2>/dev/null || true
+    fi
+
+    # Create compatibility symlinks if needed
+    if [[ ! -f /lib/x86_64-linux-gnu/libncurses.so.5 && -f /lib/x86_64-linux-gnu/libncurses.so.6 ]]; then
+        log_info "Creating compatibility symlink for libncurses.so.5"
+        sudo ln -sf /lib/x86_64-linux-gnu/libncurses.so.6 /lib/x86_64-linux-gnu/libncurses.so.5 || true
+    fi
+
+    if [[ ! -f /lib/x86_64-linux-gnu/libtinfo.so.5 && -f /lib/x86_64-linux-gnu/libtinfo.so.6 ]]; then
+        log_info "Creating compatibility symlink for libtinfo.so.5"
+        sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
+    fi
 
     # Create a secure temporary directory for the download
     TEMP_DIR=$(mktemp -d)
