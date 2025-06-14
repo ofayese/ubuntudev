@@ -87,6 +87,11 @@ load_dependencies() {
       continue
     fi
 
+    # Stop processing if we hit the legacy section or any other top-level section
+    if [[ "$line" =~ ^[a-z]+:$ && "$line" != "components:" && "$in_components" == true ]]; then
+      break
+    fi
+
     # Only process lines within the components section
     if [[ "$in_components" == true ]]; then
       # Check for component name (indented with 2 spaces)
@@ -100,6 +105,7 @@ load_dependencies() {
 
       # Process component properties (indented with 4+ spaces)
       if [[ -n "$comp" ]]; then
+        # Handle legacy requires format
         if [[ "$original_line" =~ ^[[:space:]]{4,}requires:[[:space:]]*\[(.*)\]$ ]]; then
           # Handle array format: requires: ["item1", "item2"]
           local req_list="${BASH_REMATCH[1]}"
@@ -109,9 +115,26 @@ load_dependencies() {
         elif [[ "$original_line" =~ ^[[:space:]]{4,}requires:[[:space:]]*(.*)$ ]]; then
           # Handle simple format: requires: item
           REQUIRES["$comp"]="${BASH_REMATCH[1]//\"/}"
+
+        # Handle new dependencies.required format
+        elif [[ "$original_line" =~ ^[[:space:]]{6,}required:[[:space:]]*\[(.*)\]$ ]]; then
+          # Handle array format under dependencies: required: ["item1", "item2"]
+          local req_list="${BASH_REMATCH[1]}"
+          req_list="${req_list//\"/}" # Remove quotes
+          req_list="${req_list//,/ }" # Replace commas with spaces
+          REQUIRES["$comp"]="$req_list"
+        elif [[ "$original_line" =~ ^[[:space:]]{6,}required:[[:space:]]*(.*)$ ]]; then
+          # Handle simple format under dependencies: required: item
+          local req_value="${BASH_REMATCH[1]//\"/}"
+          [[ "$req_value" != "[]" ]] && REQUIRES["$comp"]="$req_value"
+
         elif [[ "$original_line" =~ ^[[:space:]]{4,}script:[[:space:]]*\"?([^\"]+)\"?$ ]]; then
           SCRIPTS["$comp"]="${BASH_REMATCH[1]}"
         elif [[ "$original_line" =~ ^[[:space:]]{4,}description:[[:space:]]*\"([^\"]+)\"$ ]]; then
+          # Handle quoted descriptions
+          DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]}"
+        elif [[ "$original_line" =~ ^[[:space:]]{4,}description:[[:space:]]*([^\"]+)$ ]]; then
+          # Handle unquoted descriptions
           DESCRIPTIONS["$comp"]="${BASH_REMATCH[1]}"
         fi
       fi

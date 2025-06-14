@@ -8,13 +8,4 @@ digraph G {
   devtools -> vscommunity;
   update-env;
   validate;
-  devtools;
-  devtools -> terminal-enhancements;
-  desktop;
-  devtools -> devcontainers;
-  dotnet-ai;
-  lang-sdks;
-  devtools -> vscommunity;
-  update-env;
-  validate;
 }

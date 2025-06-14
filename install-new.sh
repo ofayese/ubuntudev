@@ -30,18 +30,22 @@ if [[ -z "${OS_TYPE+x}" ]]; then
 fi
 
 # Source utility modules with error checking
+echo "DEBUG: About to source util-log.sh"
 source "$SCRIPT_DIR/util-log.sh" || {
   echo "FATAL: Failed to source util-log.sh" >&2
   exit 1
 }
+echo "DEBUG: About to source util-env.sh"
 source "$SCRIPT_DIR/util-env.sh" || {
   echo "FATAL: Failed to source util-env.sh" >&2
   exit 1
 }
+echo "DEBUG: About to source util-install.sh"
 source "$SCRIPT_DIR/util-install.sh" || {
   echo "FATAL: Failed to source util-install.sh" >&2
   exit 1
 }
+echo "DEBUG: About to source util-deps.sh"
 source "$SCRIPT_DIR/util-deps.sh" || {
   echo "FATAL: Failed to source util-deps.sh" >&2
   exit 1
@@ -53,8 +57,9 @@ readonly STATE_FILE="$HOME/.ubuntu-devtools.state"
 
 # Create log directory if it doesn't exist
 mkdir -p "$(dirname "$LOGFILE")"
-init_logging "$LOGFILE"
-set_error_trap
+# Simplified logging for debugging
+# init_logging "$LOGFILE"
+# set_error_trap
 
 # Show help information
 show_help() {
@@ -100,6 +105,12 @@ EOF
 }
 
 # Parse flags
+RESUME=false
+GRAPH=false
+VALIDATE=false
+ALL=false
+COMPONENT_FLAGS=()
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
   --help | -h)
@@ -168,14 +179,24 @@ fi
 # Unique & ordered components
 unique=()
 declare -A seen
-for c in "${selected[@]}"; do [[ -z "${seen[$c]:-}" ]] && unique+=("$c") && seen["$c"]=1; done
+echo "DEBUG: Processing selected components: ${selected[*]:-none}"
+for c in "${selected[@]}"; do
+  echo "DEBUG: Processing component: $c"
+  [[ -z "${seen[$c]:-}" ]] && unique+=("$c") && seen["$c"]=1
+done
+echo "DEBUG: Unique components: ${unique[*]:-none}"
 
 # Get resolved dependency order
-readarray -t ordered < <(resolve_selected "${unique[@]}" | tr ' ' '\n')
+echo "DEBUG: About to resolve dependencies for: ${unique[*]}"
 
-log_info "Selected components: ${unique[*]}"
-log_info "Installation order: ${ordered[*]}"
-log_info "Total components to install: ${#ordered[@]}"
+# Simple dependency resolution - for now just use the selected components
+# TODO: Fix the complex resolve_selected function
+ordered=("${unique[@]}")
+echo "DEBUG: Using simple order, got ${#ordered[@]} components"
+
+echo "Selected components: ${unique[*]}"
+echo "Installation order: ${ordered[*]}"
+echo "Total components to install: ${#ordered[@]}"
 
 mark_done() { grep -Fxq "$1" "$STATE_FILE" || echo "$1" >>"$STATE_FILE"; }
 is_done() { grep -Fxq "$1" "$STATE_FILE"; }
@@ -188,22 +209,22 @@ for comp in "${ordered[@]}"; do
   current_step=$((current_step + 1))
 
   if [[ "${RESUME}" == "true" ]] && is_done "$comp"; then
-    log_info "Skipping $comp (already done)."
-    show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
+    echo "Skipping $comp (already done)."
+    # show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
     continue
   fi
   if [[ -n "${skip[$comp]:-}" ]]; then
-    log_warning "Skipping $comp due to failed dependency."
+    echo "Skipping $comp due to failed dependency."
     failed+=("$comp")
-    show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
+    # show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
     continue
   fi
 
   script="${SCRIPTS[$comp]}"
   desc="${DESCRIPTIONS[$comp]:-$comp}"
 
-  log_info "[$current_step/${#ordered[@]}] Installing: $desc"
-  show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
+  echo "[$current_step/${#ordered[@]}] Installing: $desc"
+  # show_progress "$current_step" "${#ordered[@]}" "Installation Progress"
 
   install_component "$script" "$desc" "$SCRIPT_DIR" || {
     failed+=("$comp")
@@ -213,12 +234,12 @@ for comp in "${ordered[@]}"; do
 done
 
 if [[ ${#failed[@]} -gt 0 ]]; then
-  log_warning "Failures/skips:"
-  for f in "${failed[@]}"; do log_error "  - $f"; done
-  log_info "Run --resume to retry."
+  echo "Failures/skips:"
+  for f in "${failed[@]}"; do echo "  - $f"; done
+  echo "Run --resume to retry."
 else
-  log_success "All done!"
+  echo "All done!"
 fi
 
-finish_logging
-finish_logging
+# finish_logging
+# finish_logging

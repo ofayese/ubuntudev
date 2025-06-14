@@ -384,15 +384,28 @@ install_component() {
   log_info "Starting component: $description"
   start_spinner "Installing $description"
 
-  # Execute the component script
-  if bash "$script_path" >/dev/null 2>&1; then
+  # Execute the component script with visible output
+  # Use tee to both show output and capture for logging
+  local temp_output
+  temp_output=$(mktemp)
+
+  if bash "$script_path" 2>&1 | tee "$temp_output"; then
     stop_spinner "Installing $description"
     log_success "Component completed: $description"
+    rm -f "$temp_output"
     return 0
   else
-    local exit_code=$?
+    local exit_code=${PIPESTATUS[0]}
     stop_spinner "Installing $description"
     log_error "Component failed: $description (exit code: $exit_code)"
+    # Log the last few lines of output for debugging
+    if [[ -f "$temp_output" && -s "$temp_output" ]]; then
+      log_error "Last output from failed component:"
+      tail -n 10 "$temp_output" | while IFS= read -r line; do
+        log_error "  $line"
+      done
+    fi
+    rm -f "$temp_output"
     return $exit_code
   fi
 }
