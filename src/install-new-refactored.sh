@@ -93,6 +93,25 @@ _load_utility_modules() {
 _load_utility_modules
 
 # ------------------------------------------------------------------------------
+# Component to Script Mapping
+# ------------------------------------------------------------------------------
+
+# Map component names to their corresponding setup scripts
+declare -A SCRIPTS=(
+    ["devtools"]="setup-devtools-refactored.sh"
+    ["terminal"]="setup-terminal-enhancements.sh"
+    ["terminal-enhancements"]="setup-terminal-enhancements.sh"
+    ["desktop"]="setup-desktop.sh"
+    ["devcontainers"]="setup-devcontainers.sh"
+    ["dotnet-ai"]="setup-dotnet-ai.sh"
+    ["lang-sdks"]="setup-lang-sdks.sh"
+    ["vscommunity"]="setup-vscommunity.sh"
+    ["update-env"]="update-environment.sh"
+    ["node-python"]="setup-node-python.sh"
+    ["npm"]="setup-npm.sh"
+)
+
+# ------------------------------------------------------------------------------
 # Help and Usage Functions
 # ------------------------------------------------------------------------------
 
@@ -356,24 +375,24 @@ execute_installation() {
     local total_components=${#COMPONENTS_TO_INSTALL[@]}
 
     for component in "${COMPONENTS_TO_INSTALL[@]}"; do
-        ((component_count++))
+        component_count=$((component_count + 1))
 
-        log_step_start "Installing $component" "$component_count" "$total_components"
+        log_progress_start "Installing $component" "$component_count" "$total_components"
 
         # Check if component was already installed (for resume functionality)
         if grep -q "^$component:SUCCESS$" "$STATE_FILE" 2>/dev/null; then
             log_info "Component $component already installed (skipping)"
-            log_step_complete "Installing $component" "$component_count" "$total_components" "SKIPPED"
+            log_progress_complete "Installing $component" "SKIPPED" "$component_count" "$total_components"
             continue
         fi
 
         # Install the component
         if install_component "$component"; then
             echo "$component:SUCCESS" >>"$STATE_FILE"
-            log_step_complete "Installing $component" "$component_count" "$total_components" "SUCCESS"
+            log_progress_complete "Installing $component" "SUCCESS" "$component_count" "$total_components"
         else
             echo "$component:FAILED" >>"$STATE_FILE"
-            log_step_complete "Installing $component" "$component_count" "$total_components" "FAILED"
+            log_progress_complete "Installing $component" "FAILED" "$component_count" "$total_components"
             log_error "Installation failed for component: $component"
             exit $EXIT_GENERAL_ERROR
         fi
