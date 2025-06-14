@@ -1,32 +1,23 @@
-# 🚀 Current Installation Setup
+# 🚀 Ubuntu Development Environment Setup
 
-## ✅ **Main Installer: `install-new.sh`**
+## ✅ **Main Installer: `install-new-refactored.sh`**
 
-This is now the **single, correct installation file** after our cleanup.
+This is the **production-ready, refactored installation system** with robust error handling and comprehensive component support.
 
-### 📋 **Usage Examples**
+### 📋 **Quick Start**
 
 ```bash
-# Show help and available options
-./install-new.sh --help
+# Complete development environment (recommended)
+./install-new-refactored.sh --all
 
-# Install everything (recommended for new setups)
-./install-new.sh --all
+# Preview what would be installed (safe testing)
+./install-new-refactored.sh --all --dry-run
 
-# Install specific components only
-./install-new.sh --devtools --terminal --vscommunity
+# Essential development setup
+./install-new-refactored.sh --devtools --terminal-enhancements
 
-# Just run validation (check what's installed)
-./install-new.sh --validate
-
-# Show dependency graph
-./install-new.sh --graph
-
-# Resume interrupted installation
-./install-new.sh --resume
-
-# Debug mode (verbose output)
-./install-new.sh --debug --devtools
+# Show help and all available options
+./install-new-refactored.sh --help
 ```
 
 ### 🎯 **Available Components**
@@ -34,20 +25,92 @@ This is now the **single, correct installation file** after our cleanup.
 | Component | Flag | Description |
 |-----------|------|-------------|
 | **devtools** | `--devtools` | Essential development tools (git, vim, curl, build tools) |
-| **terminal** | `--terminal` | Modern CLI tools (bat, ripgrep, fzf, eza, etc.) |
+| **terminal-enhancements** | `--terminal-enhancements` | Modern CLI tools (bat, ripgrep, fzf, eza, zoxide) |
 | **desktop** | `--desktop` | Desktop environment enhancements |
-| **devcontainers** | `--devcontainers` | Development containers setup |
-| **dotnet-ai** | `--dotnet-ai` | .NET and AI development tools |
-| **lang-sdks** | `--lang-sdks` | Language SDKs (Node.js, Python, Java, Rust, Go) |
-| **vscommunity** | `--vscommunity` | Visual Studio Code and extensions |
+| **devcontainers** | `--devcontainers` | Development containers setup (Docker/Podman) |
+| **dotnet-ai** | `--dotnet-ai` | .NET SDKs, PowerShell, AI/ML tools |
+| **lang-sdks** | `--lang-sdks` | Language SDKs (Rust, Java/SDKMAN, Haskell) |
+| **node-python** | `--node-python` | Node.js (NVM) and Python (pyenv) |
+| **npm** | `--npm` | Global NPM development packages |
+| **vscommunity** | `--vscommunity` | Visual Studio Community 2022 (WSL2 only) |
 | **update-env** | `--update-env` | Environment updates and optimizations |
 
-### 🔍 **Key Features**
+### 🔧 **Installation Examples**
 
+```bash
+# Web developer setup
+./install-new-refactored.sh --devtools --terminal-enhancements --node-python --npm
+
+# Systems programming setup  
+./install-new-refactored.sh --devtools --terminal-enhancements --lang-sdks --devcontainers
+
+# AI/ML development setup
+./install-new-refactored.sh --devtools --dotnet-ai --node-python
+
+# Complete enterprise setup (WSL2)
+./install-new-refactored.sh --all
+```
+
+### 🔍 **Utility Commands**
+
+```bash
+# Resume interrupted installation
+./install-new-refactored.sh --resume
+
+# Generate and view dependency graph
+./install-new-refactored.sh --graph
+
+# Run validation checks only
+./install-new-refactored.sh --validate
+
+# Debug mode for troubleshooting
+./install-new-refactored.sh --debug --devtools
+
+# Skip prerequisite checks (advanced)
+./install-new-refactored.sh --skip-prereqs --devtools
+```
+
+### ✨ **Key Features**
+
+✅ **Robust Error Handling** - Comprehensive error handling and recovery  
 ✅ **Dependency Resolution** - Automatically installs required components  
 ✅ **Resume Support** - Can resume from interrupted installations  
-✅ **Bulletproof Sourcing** - No module loading conflicts  
+✅ **Dry-Run Mode** - Preview changes before applying them  
+✅ **Production Ready** - Thoroughly tested and debugged  
 ✅ **Comprehensive Logging** - Detailed logs in `~/.local/share/ubuntu-dev-tools/logs/`  
+✅ **WSL2 Support** - Full Windows integration features  
+✅ **Idempotent** - Safe to run multiple times
+
+### 📁 **Key Files and Locations**
+
+- **Main Installer**: `install-new-refactored.sh`
+- **Component Scripts**: `setup-*.sh`
+- **Dependencies**: `dependencies.yaml`
+- **Logs**: `~/.local/share/ubuntu-dev-tools/logs/`
+- **State**: `~/.ubuntu-devtools.state`
+
+### 🚨 **After Installation**
+
+```bash
+# Restart your shell to activate new tools
+exec $SHELL
+
+# Verify installation
+which git node python3 cargo rustc java
+
+# Check versions
+./validate-installation.sh
+```
+
+### 📖 **Full Documentation**
+
+For complete installation instructions, see: `/home/ofayese/ubuntudev/INSTALLATION-GUIDE.md`
+
+---
+
+**Last Updated**: June 14, 2025  
+**Status**: Production Ready ✅  
+**Installer**: `install-new-refactored.sh`  
 ✅ **State Management** - Tracks installation progress  
 ✅ **Validation Mode** - Check what's installed without installing  
 
