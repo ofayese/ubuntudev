@@ -1,50 +1,71 @@
 #!/usr/bin/env bash
-# util-wsl.sh - WSL-specific configuration and optimizations
+# Utility: util-wsl.sh
+# Description: WSL-specific configuration and optimizations
+# Last Updated: 2025-06-13
 # Version: 1.0.0
-# Last updated: 2025-06-13
-#
-# Configures WSL2 environment for optimal development experience with:
-# - Systemd support and optimized wsl.conf settings
-# - Conditional DNS configuration (only if needed)
-# - Essential Windows path symlinks with permission-safe SSH handling
-# - Git integration with Windows Credential Manager
-# - Windows Terminal integration with improved launcher
-# - Performance optimizations including .wslconfig and I/O tuning
-#
-# Last updated: January 2025 - Aligned with Windows 11 + WSL2 best practices
+
 set -euo pipefail
 
-# shellcheck disable=SC2034  # VERSION used in utility identification
-readonly VERSION="1.0.0"
-
-# Guard against multiple sourcing
-if [[ "${UTIL_WSL_LOADED:-}" == "true" ]]; then
+# Load guard to prevent multiple sourcing
+if [[ -n "${UTIL_WSL_SH_LOADED:-}" ]]; then
   return 0
 fi
-readonly UTIL_WSL_LOADED="true"
+readonly UTIL_WSL_SH_LOADED=1
 
-# Operating system detection for cross-platform compatibility
-# shellcheck disable=SC2034,SC2155  # OS_TYPE used by utility functions
-readonly OS_TYPE="$(uname -s)"
+# ------------------------------------------------------------------------------
+# Global Variable Initialization (Safe conditional pattern)
+# ------------------------------------------------------------------------------
 
-# Dry-run mode support
-readonly DRY_RUN="${DRY_RUN:-false}"
-
-# Use existing SCRIPT_DIR if available, otherwise set it locally
+# Script directory (only declare once globally)
 if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  # shellcheck disable=SC2155  # SCRIPT_DIR assignment pattern
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
 fi
 
-# Source utility modules with error checking
-source "$SCRIPT_DIR/util-log.sh" || {
-  echo "FATAL: Failed to source util-log.sh" >&2
-  exit 1
-}
-source "$SCRIPT_DIR/util-env.sh" || {
-  echo "FATAL: Failed to source util-env.sh" >&2
-  exit 1
-}
+# Version & timestamp (only declare once globally)
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="1.0.0"
+  readonly VERSION
+fi
+
+if [[ -z "${LAST_UPDATED:-}" ]]; then
+  LAST_UPDATED="2025-06-13"
+  readonly LAST_UPDATED
+fi
+
+# OS detection (only declare once globally)
+if [[ -z "${OS_TYPE:-}" ]]; then
+  OS_TYPE="$(uname -s)"
+  readonly OS_TYPE
+fi
+
+# Dry run support (only declare once globally)
+if [[ -z "${DRY_RUN:-}" ]]; then
+  DRY_RUN="false"
+  readonly DRY_RUN
+fi
+
+# ------------------------------------------------------------------------------
+# Dependencies: Load required utilities
+# ------------------------------------------------------------------------------
+
+if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
+  source "${SCRIPT_DIR}/util-log.sh" || {
+    echo "[ERROR] Failed to source util-log.sh" >&2
+    exit 1
+  }
+fi
+
+if [[ -z "${UTIL_ENV_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-env.sh" ]]; then
+  source "${SCRIPT_DIR}/util-env.sh" || {
+    echo "[ERROR] Failed to source util-env.sh" >&2
+    exit 1
+  }
+fi
+
+# ------------------------------------------------------------------------------
+# Module Functions
+# ------------------------------------------------------------------------------
 
 # --- Configure optimal WSL.conf settings ---
 setup_wsl_conf() {

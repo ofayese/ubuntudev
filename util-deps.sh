@@ -1,50 +1,64 @@
 #!/usr/bin/env bash
-# util-deps.sh - Dependency graph management
+# Utility: util-deps.sh
+# Description: Dependency graph management utilities
+# Last Updated: 2025-06-13
 # Version: 1.0.0
-# Last updated: 2025-06-13
+
 set -euo pipefail
 
-# Guard against multiple sourcing
-if [[ "${UTIL_DEPS_LOADED:-}" == "true" ]]; then
+# Load guard to prevent multiple sourcing
+if [[ -n "${UTIL_DEPS_SH_LOADED:-}" ]]; then
   return 0
 fi
+readonly UTIL_DEPS_SH_LOADED=1
 
-# Set this first, before any potential exits
-UTIL_DEPS_LOADED="true"
+# ------------------------------------------------------------------------------
+# Global Variable Initialization (Safe conditional pattern)
+# ------------------------------------------------------------------------------
 
-# Script version and last updated timestamp - scoped only to this script
-# Use local variables rather than readonly globals to avoid redeclaration issues
-# shellcheck disable=SC2034  # Used for version reporting in debug scenarios
-declare UTIL_DEPS_VERSION="1.0.0"
-# shellcheck disable=SC2034  # Used for version reporting in debug scenarios
-declare UTIL_DEPS_LAST_UPDATED="2025-06-13"
+# Script directory (only declare once globally)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
+fi
 
-# Cross-platform support - use global if set, otherwise set locally
-# But don't make it readonly to avoid redeclaration issues
+# Version & timestamp (only declare once globally)
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="1.0.0"
+  readonly VERSION
+fi
+
+if [[ -z "${LAST_UPDATED:-}" ]]; then
+  LAST_UPDATED="2025-06-13"
+  readonly LAST_UPDATED
+fi
+
+# OS detection (only declare once globally)
 if [[ -z "${OS_TYPE:-}" ]]; then
   OS_TYPE="$(uname -s)"
-  export OS_TYPE
+  readonly OS_TYPE
 fi
 
-# Dry-run mode support - use global if set, otherwise set locally
-# But don't make it readonly to avoid redeclaration issues
+# Dry run support (only declare once globally)
 if [[ -z "${DRY_RUN:-}" ]]; then
-  DRY_RUN="${DRY_RUN:-false}"
-  export DRY_RUN
+  DRY_RUN="false"
+  readonly DRY_RUN
 fi
 
-# Mark as loaded only after successful initialization
-readonly UTIL_DEPS_LOADED
+# ------------------------------------------------------------------------------
+# Dependency: Logging functions (optional)
+# ------------------------------------------------------------------------------
 
-# Script directory - use existing SCRIPT_DIR if available, otherwise calculate locally
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
+  source "${SCRIPT_DIR}/util-log.sh" || {
+    echo "[ERROR] Failed to source util-log.sh" >&2
+    exit 1
+  }
 fi
 
-source "$SCRIPT_DIR/util-log.sh" || {
-  echo "FATAL: Failed to source util-log.sh" >&2
-  exit 1
-}
+# ------------------------------------------------------------------------------
+# Module Functions
+# ------------------------------------------------------------------------------
 
 # Initialize/clear dependency arrays if they don't exist or we need fresh state
 # Use conditional declaration to avoid redeclaring if already sourced in parent script

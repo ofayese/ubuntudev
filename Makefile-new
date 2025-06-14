@@ -1,0 +1,60 @@
+# Makefile for UbuntuDev Installation Framework
+# Last Updated: 2025-06-13
+
+.PHONY: help test test-sourcing install lint clean all
+
+# Default target
+help:
+	@echo "Ubuntu Development Environment - Available Commands:"
+	@echo ""
+	@echo "  make test           - Run all tests (sourcing + lint)"
+	@echo "  make test-sourcing  - Test utility module sourcing safety"
+	@echo "  make lint          - Run shellcheck on all scripts"
+	@echo "  make install       - Run robust installer (--all)"
+	@echo "  make install-dry   - Run installer in dry-run mode"
+	@echo "  make clean         - Clean temporary files"
+	@echo "  make all           - Run tests and install"
+	@echo ""
+
+# Test utility module sourcing
+test-sourcing:
+	@echo "Testing utility module sourcing safety..."
+	bash ./test-source-all.sh
+
+# Run shellcheck linting
+lint:
+	@echo "Running shellcheck on all scripts..."
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck *.sh util-*.sh || echo "shellcheck found issues - see output above"; \
+	else \
+		echo "shellcheck not installed - skipping lint check"; \
+	fi
+
+# Combined test target
+test: test-sourcing lint
+	@echo "All tests completed successfully!"
+
+# Install using the bulletproof installer
+install:
+	@echo "Running robust UbuntuDev installation..."
+	bash ./install-new-bulletproof.sh --all
+
+# Dry-run installation
+install-dry:
+	@echo "Running dry-run installation..."
+	bash ./install-new-bulletproof.sh --all --dry-run
+
+# Clean temporary files
+clean:
+	@echo "Cleaning temporary files..."
+	rm -f /tmp/ubuntu-devtools-*
+	rm -f /tmp/install-*
+	rm -f /tmp/setup-*
+
+# Run tests then install
+all: test install
+
+# Development convenience targets
+dev-test:
+	@echo "Quick development test..."
+	bash ./test-source-all.sh && echo "✅ Sourcing test passed"

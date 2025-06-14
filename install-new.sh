@@ -56,12 +56,56 @@ mkdir -p "$(dirname "$LOGFILE")"
 init_logging "$LOGFILE"
 set_error_trap
 
-RESUME=false
-COMPONENT_FLAGS=()
+# Show help information
+show_help() {
+  cat <<'EOF'
+🚀 Ubuntu Development Environment Installer
+==========================================
+
+USAGE:
+  ./install-new.sh [OPTIONS] [COMPONENTS]
+
+OPTIONS:
+  --all                Install all available components
+  --resume             Resume from previous failed installation
+  --graph              Generate dependency graph and exit
+  --validate           Run validation checks and exit
+  --debug              Enable debug mode (set -x)
+  --skip-prereqs       Skip prerequisite checks
+  --help, -h           Show this help message
+
+COMPONENTS:
+  --devtools           Essential development tools (git, vim, curl, etc.)
+  --terminal           Modern CLI tools (bat, ripgrep, fzf, etc.)
+  --desktop            Desktop environment enhancements
+  --devcontainers      Development containers setup
+  --dotnet-ai          .NET and AI development tools
+  --lang-sdks          Language SDKs (Node.js, Python, Java, etc.)
+  --vscommunity        Visual Studio Code and extensions
+  --update-env         Environment updates and optimizations
+
+EXAMPLES:
+  ./install-new.sh --all                    # Install everything
+  ./install-new.sh --devtools --terminal    # Install dev tools and modern CLI
+  ./install-new.sh --validate               # Just run validation
+  ./install-new.sh --graph                  # Show dependency graph
+
+FILES:
+  dependencies.yaml                         # Component dependencies
+  ~/.ubuntu-devtools.state                  # Installation state
+  ~/.local/share/ubuntu-dev-tools/logs/     # Log files
+
+For more information, see: README.md
+EOF
+}
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
   case "$1" in
+  --help | -h)
+    show_help
+    exit 0
+    ;;
   --skip-prereqs)
     # shellcheck disable=SC2034  # SKIP_PREREQS may be used by sourced scripts
     SKIP_PREREQS=true

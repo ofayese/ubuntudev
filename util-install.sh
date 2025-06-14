@@ -1,23 +1,80 @@
 #!/usr/bin/env bash
-# util-install.sh - Centralized installation and package management functions
+# Utility: util-install.sh
+# Description: Centralized installation and package management functions
+# Last Updated: 2025-06-13
+# Version: 1.0.0
+
 set -euo pipefail
 
-# Guard against multiple sourcing
-if [[ "${UTIL_INSTALL_LOADED:-}" == "true" ]]; then
+# Load guard to prevent multiple sourcing
+if [[ -n "${UTIL_INSTALL_SH_LOADED:-}" ]]; then
   return 0
 fi
-readonly UTIL_INSTALL_LOADED="true"
+readonly UTIL_INSTALL_SH_LOADED=1
 
-source "$(dirname "${BASH_SOURCE[0]}")/util-log.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/util-env.sh"
+# ------------------------------------------------------------------------------
+# Global Variable Initialization (Safe conditional pattern)
+# ------------------------------------------------------------------------------
 
-ENV_TYPE="${ENV_TYPE:-$(detect_environment)}"
+# Script directory (only declare once globally)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
+fi
+
+# Version & timestamp (only declare once globally)
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="1.0.0"
+  readonly VERSION
+fi
+
+if [[ -z "${LAST_UPDATED:-}" ]]; then
+  LAST_UPDATED="2025-06-13"
+  readonly LAST_UPDATED
+fi
+
+# OS detection (only declare once globally)
+if [[ -z "${OS_TYPE:-}" ]]; then
+  OS_TYPE="$(uname -s)"
+  readonly OS_TYPE
+fi
+
+# Dry run support (only declare once globally)
+if [[ -z "${DRY_RUN:-}" ]]; then
+  DRY_RUN="false"
+  readonly DRY_RUN
+fi
+
+# ------------------------------------------------------------------------------
+# Dependencies: Load required utilities
+# ------------------------------------------------------------------------------
+
+if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
+  source "${SCRIPT_DIR}/util-log.sh" || {
+    echo "[ERROR] Failed to source util-log.sh" >&2
+    exit 1
+  }
+fi
+
+if [[ -z "${UTIL_ENV_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-env.sh" ]]; then
+  source "${SCRIPT_DIR}/util-env.sh" || {
+    echo "[ERROR] Failed to source util-env.sh" >&2
+    exit 1
+  }
+fi
+
+# ------------------------------------------------------------------------------
+# Module Functions
+# ------------------------------------------------------------------------------
 
 # --- Package Installation Functions ---
 
 update_package_index() {
   log_info "Updating package index..."
-  sudo apt-get update -y || { log_error "apt update failed."; return 1; }
+  sudo apt-get update -y || {
+    log_error "apt update failed."
+    return 1
+  }
 }
 
 # Install packages from apt with error handling (consolidated from util-packages.sh)
@@ -25,9 +82,9 @@ safe_apt_install() {
   init_logging
   local packages=("$@")
   local failed_packages=()
-  
+
   update_package_index
-  
+
   for pkg in "${packages[@]}"; do
     log_info "Installing $pkg..."
     if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=30 "$pkg" 2>/dev/null; then
@@ -37,12 +94,12 @@ safe_apt_install() {
       failed_packages+=("$pkg")
     fi
   done
-  
+
   if [ ${#failed_packages[@]} -gt 0 ]; then
     log_warning "Failed to install: ${failed_packages[*]}"
     return 1
   fi
-  
+
   finish_logging
   return 0
 }
@@ -56,7 +113,10 @@ install_packages() {
       log_info "Installing $p via brew..."
       brew install "$p" || failed+=("$p")
     done
-    [[ ${#failed[@]} -eq 0 ]] || { log_error "Failed: ${failed[*]}"; return 1; }
+    [[ ${#failed[@]} -eq 0 ]] || {
+      log_error "Failed: ${failed[*]}"
+      return 1
+    }
   else
     safe_apt_install "${pkgs[@]}"
   fi
@@ -67,19 +127,19 @@ safe_install_snap() {
   init_logging
   local package="$1"
   local classic_flag="${2:-}"
-  
+
   if ! command_exists snap; then
     log_info "snap not installed, attempting to install via apt..."
     safe_apt_install snapd
   fi
-  
+
   if command_exists snap; then
     local cmd="sudo snap install $package"
-    
+
     if [ "$classic_flag" = "--classic" ]; then
       cmd="$cmd --classic"
     fi
-    
+
     log_info "Installing $package via snap..."
     if eval "$cmd"; then
       log_success "Successfully installed $package via snap"
@@ -89,7 +149,7 @@ safe_install_snap() {
       log_warning "Failed to install $package via snap, trying apt..."
     fi
   fi
-  
+
   # Fallback to apt
   log_info "Attempting to install $package via apt..."
   if safe_apt_install "$package"; then
@@ -115,11 +175,11 @@ safe_install_deb() {
   local url="$1"
   local pkg_name="${2:-$(basename "$url" .deb)}"
   local temp_file="/tmp/${pkg_name}_$(date +%s).deb"
-  
+
   log_info "Downloading $pkg_name from $url..."
   if wget -q -O "$temp_file" "$url"; then
     log_success "Download complete"
-    
+
     log_info "Installing $pkg_name..."
     if sudo apt install -y "$temp_file"; then
       log_success "Successfully installed $pkg_name"
@@ -149,11 +209,11 @@ install_deb_package() {
 # Download and install a tool from GitHub releases (consolidated from util-packages.sh)
 install_from_github() {
   init_logging
-  local repo="$1"          # GitHub repository (e.g., "eza-community/eza")
-  local pattern="$2"        # File pattern to download (e.g., "eza_.*_amd64.deb")
-  local install_cmd="$3"    # Command to run for installation, use $1 as placeholder for the download path
+  local repo="$1"        # GitHub repository (e.g., "eza-community/eza")
+  local pattern="$2"     # File pattern to download (e.g., "eza_.*_amd64.deb")
+  local install_cmd="$3" # Command to run for installation, use $1 as placeholder for the download path
   local binary_name="${4:-$(echo "$repo" | cut -d/ -f2)}"
-  
+
   # Check if already installed
   if command_exists "$binary_name"; then
     local current_version
@@ -162,31 +222,31 @@ install_from_github() {
     finish_logging
     return 0
   fi
-  
+
   log_info "Installing $binary_name from GitHub ($repo)..."
-  
+
   # Get latest release download URL
   local download_url
-  download_url=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | \
-                 grep browser_download_url | grep -E "$pattern" | head -1 | cut -d '"' -f 4)
-  
+  download_url=$(curl -s "https://api.github.com/repos/$repo/releases/latest" |
+    grep browser_download_url | grep -E "$pattern" | head -1 | cut -d '"' -f 4)
+
   if [ -z "$download_url" ]; then
     log_error "No download URL found for $binary_name with pattern $pattern"
     finish_logging
     return 1
   fi
-  
+
   # Download the file
   local temp_file="/tmp/${binary_name}_download"
   log_info "Downloading from $download_url"
-  
+
   if wget -q -O "$temp_file" "$download_url"; then
     log_success "Download complete"
-    
+
     # Install using the provided command
     local cmd="${install_cmd//\$1/$temp_file}"
     log_info "Installing with command: $cmd"
-    
+
     if eval "$cmd"; then
       log_success "$binary_name installed successfully"
       rm -f "$temp_file"
@@ -211,12 +271,12 @@ safe_add_apt_repository() {
   init_logging
   local repo="$1"
   local desc="${2:-APT repository}"
-  
+
   log_info "Adding $desc ($repo)..."
-  
+
   # First make sure software-properties-common is installed
   safe_apt_install software-properties-common apt-transport-https
-  
+
   if sudo add-apt-repository -y "$repo" 2>/dev/null; then
     log_success "Successfully added repository: $repo"
     sudo apt-get update -q
@@ -234,13 +294,19 @@ install_python_package() {
   local pkg="$1"
   log_info "Installing Python pkg: $pkg"
   command_exists pip3 || safe_apt_install python3-pip
-  pip3 install -U "$pkg" || { log_error "pip install $pkg failed"; return 1; }
+  pip3 install -U "$pkg" || {
+    log_error "pip install $pkg failed"
+    return 1
+  }
 }
 
 install_node_package() {
   local pkg="$1"
   log_info "Installing Node pkg: $pkg"
-  npm install -g "$pkg" || { log_error "npm install $pkg failed"; return 1; }
+  npm install -g "$pkg" || {
+    log_error "npm install $pkg failed"
+    return 1
+  }
 }
 
 # --- Package Checking Functions ---
@@ -304,7 +370,7 @@ install_component() {
   local description="$2"
   local script_dir="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
   local script_path
-  
+
   # Resolve script path
   if [[ -f "$script" ]]; then
     script_path="$script"
@@ -314,10 +380,10 @@ install_component() {
     log_error "Component script not found: $script (looked in: $script_dir)"
     return 1
   fi
-  
+
   log_info "Starting component: $description"
   start_spinner "Installing $description"
-  
+
   # Execute the component script
   if bash "$script_path" >/dev/null 2>&1; then
     stop_spinner "Installing $description"

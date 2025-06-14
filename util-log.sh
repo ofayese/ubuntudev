@@ -1,12 +1,49 @@
 #!/usr/bin/env bash
-# util-log.sh - Unified logging and error handling utilities
+# Utility: util-log.sh
+# Description: Unified logging and error handling utilities
+# Last Updated: 2025-06-13
+# Version: 1.0.0
+
 set -euo pipefail
 
-# Guard against multiple sourcing
-if [[ "${UTIL_LOG_LOADED:-}" == "true" ]]; then
+# Load guard to prevent multiple sourcing
+if [[ -n "${UTIL_LOG_SH_LOADED:-}" ]]; then
   return 0
 fi
-readonly UTIL_LOG_LOADED="true"
+readonly UTIL_LOG_SH_LOADED=1
+
+# ------------------------------------------------------------------------------
+# Global Variable Initialization (Safe conditional pattern)
+# ------------------------------------------------------------------------------
+
+# Script directory (only declare once globally)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
+fi
+
+# Version & timestamp (only declare once globally)
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="1.0.0"
+  readonly VERSION
+fi
+
+if [[ -z "${LAST_UPDATED:-}" ]]; then
+  LAST_UPDATED="2025-06-13"
+  readonly LAST_UPDATED
+fi
+
+# OS detection (only declare once globally)
+if [[ -z "${OS_TYPE:-}" ]]; then
+  OS_TYPE="$(uname -s)"
+  readonly OS_TYPE
+fi
+
+# Dry run support (only declare once globally)
+if [[ -z "${DRY_RUN:-}" ]]; then
+  DRY_RUN="false"
+  readonly DRY_RUN
+fi
 
 DEFAULT_LOG_PATH="${HOME}/.local/share/ubuntu-dev-tools/logs/ubuntu-dev-tools.log"
 LOG_PATH="${LOG_PATH:-$DEFAULT_LOG_PATH}"

@@ -1,29 +1,78 @@
 #!/usr/bin/env bash
-# util-containers.sh - Container utilities and configuration
+# Utility: util-containers.sh
+# Description: Container management utilities
+# Last Updated: 2025-06-13
+# Version: 1.0.0
+
 set -euo pipefail
 
-# Guard against multiple sourcing
-if [[ "${UTIL_CONTAINERS_LOADED:-}" == "true" ]]; then
+# Load guard to prevent multiple sourcing
+if [[ -n "${UTIL_CONTAINERS_SH_LOADED:-}" ]]; then
   return 0
 fi
-readonly UTIL_CONTAINERS_LOADED="true"
+readonly UTIL_CONTAINERS_SH_LOADED=1
 
-# Use existing SCRIPT_DIR if available, otherwise set it locally
+# ------------------------------------------------------------------------------
+# Global Variable Initialization (Safe conditional pattern)
+# ------------------------------------------------------------------------------
+
+# Script directory (only declare once globally)
 if [[ -z "${SCRIPT_DIR:-}" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
 fi
-source "$SCRIPT_DIR/util-log.sh" || {
-  echo "FATAL: Failed to source util-log.sh" >&2
-  exit 1
-}
-source "$SCRIPT_DIR/util-env.sh" || {
-  echo "FATAL: Failed to source util-env.sh" >&2
-  exit 1
-}
-source "$SCRIPT_DIR/util-install.sh" || {
-  echo "FATAL: Failed to source util-install.sh" >&2
-  exit 1
-}
+
+# Version & timestamp (only declare once globally)
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="1.0.0"
+  readonly VERSION
+fi
+
+if [[ -z "${LAST_UPDATED:-}" ]]; then
+  LAST_UPDATED="2025-06-13"
+  readonly LAST_UPDATED
+fi
+
+# OS detection (only declare once globally)
+if [[ -z "${OS_TYPE:-}" ]]; then
+  OS_TYPE="$(uname -s)"
+  readonly OS_TYPE
+fi
+
+# Dry run support (only declare once globally)
+if [[ -z "${DRY_RUN:-}" ]]; then
+  DRY_RUN="false"
+  readonly DRY_RUN
+fi
+
+# ------------------------------------------------------------------------------
+# Dependencies: Load required utilities
+# ------------------------------------------------------------------------------
+
+if [[ -z "${UTIL_LOG_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-log.sh" ]]; then
+  source "${SCRIPT_DIR}/util-log.sh" || {
+    echo "[ERROR] Failed to source util-log.sh" >&2
+    exit 1
+  }
+fi
+
+if [[ -z "${UTIL_ENV_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-env.sh" ]]; then
+  source "${SCRIPT_DIR}/util-env.sh" || {
+    echo "[ERROR] Failed to source util-env.sh" >&2
+    exit 1
+  }
+fi
+
+if [[ -z "${UTIL_INSTALL_SH_LOADED:-}" && -f "${SCRIPT_DIR}/util-install.sh" ]]; then
+  source "${SCRIPT_DIR}/util-install.sh" || {
+    echo "[ERROR] Failed to source util-install.sh" >&2
+    exit 1
+  }
+fi
+
+# ------------------------------------------------------------------------------
+# Module Functions
+# ------------------------------------------------------------------------------
 
 # Security and verification configuration
 readonly CHECKSUMS_CACHE="$HOME/.cache/ubuntu-devtools/container-checksums"
