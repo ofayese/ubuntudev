@@ -77,26 +77,29 @@ update_package_index() {
   }
 }
 
-# Install packages from apt with error handling (consolidated from util-packages.sh)
+# Install packages from apt with error handling and timeout protection
 safe_apt_install() {
   init_logging
   local packages=("$@")
   local failed_packages=()
+  local timeout=120 # 2 minutes per package
 
   update_package_index
 
   for pkg in "${packages[@]}"; do
-    log_info "Installing $pkg..."
-    if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=30 "$pkg" 2>/dev/null; then
-      log_success "Installed $pkg"
+    log_substep "Installing $pkg" "IN PROGRESS"
+
+    if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=30 $pkg" "Installing $pkg" "$timeout"; then
+      log_substep "Installing $pkg" "SUCCESS"
     else
-      log_warning "Could not install $pkg - may not be available in this Ubuntu version"
+      log_substep "Installing $pkg" "WARNING" "May not be available in this Ubuntu version"
       failed_packages+=("$pkg")
     fi
   done
 
   if [ ${#failed_packages[@]} -gt 0 ]; then
-    log_warning "Failed to install: ${failed_packages[*]}"
+    log_substep "Some packages failed to install" "WARNING" "${failed_packages[*]}"
+    finish_logging
     return 1
   fi
 
@@ -122,14 +125,17 @@ install_packages() {
   fi
 }
 
-# Install snap package with fallback to apt (from util-packages.sh)
+# Install snap package with fallback to apt and timeout protection
 safe_install_snap() {
   init_logging
   local package="$1"
   local classic_flag="${2:-}"
+  local snap_timeout=180 # 3 minutes for snap operations
+
+  log_substep "Preparing to install $package" "IN PROGRESS"
 
   if ! command_exists snap; then
-    log_info "snap not installed, attempting to install via apt..."
+    log_substep "snap not available" "WARNING" "Installing snapd via apt"
     safe_apt_install snapd
   fi
 
@@ -138,25 +144,28 @@ safe_install_snap() {
 
     if [ "$classic_flag" = "--classic" ]; then
       cmd="$cmd --classic"
+      log_substep "Installing $package via snap (classic mode)" "IN PROGRESS"
+    else
+      log_substep "Installing $package via snap" "IN PROGRESS"
     fi
 
-    log_info "Installing $package via snap..."
-    if eval "$cmd"; then
-      log_success "Successfully installed $package via snap"
+    if run_with_timeout "$cmd" "Installing via snap: $package" "$snap_timeout"; then
+      log_substep "Installing $package via snap" "SUCCESS"
       finish_logging
       return 0
     else
-      log_warning "Failed to install $package via snap, trying apt..."
+      log_substep "snap installation failed" "WARNING" "Trying apt as fallback"
     fi
   fi
 
   # Fallback to apt
-  log_info "Attempting to install $package via apt..."
+  log_substep "Attempting installation via apt" "IN PROGRESS" "Package: $package"
   if safe_apt_install "$package"; then
-    log_success "Successfully installed $package via apt"
+    log_substep "Installing $package via apt" "SUCCESS"
     finish_logging
     return 0
   else
+    log_substep "Installing $package" "FAILED" "Both snap and apt methods failed"
     log_error "Failed to install $package via both snap and apt"
     finish_logging
     return 1
@@ -364,12 +373,20 @@ check_wsl_docker_integration() {
 
 # --- Component Installation with Progress ---
 
-# Install a component script with proper error handling and progress
+# Maximum timeout for component scripts (in seconds)
+readonly COMPONENT_TIMEOUT=600 # 10 minutes
+
+# Install a component script with proper error handling and enhanced progress reporting
 install_component() {
   local script="$1"
   local description="$2"
   local script_dir="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
   local script_path
+  local current_component="${4:-0}"
+  local total_components="${5:-0}"
+
+  # Default timeout: 10 minutes (600 seconds)
+  local COMPONENT_TIMEOUT=${COMPONENT_TIMEOUT:-600}
 
   # Resolve script path
   if [[ -f "$script" ]]; then
@@ -379,25 +396,90 @@ install_component() {
   else
     log_error "Component script not found: $script (looked in: $script_dir)"
     return 1
+  fi # Use enhanced timestamped progress reporting
+  if [[ "$current_component" -gt 0 && "$total_components" -gt 0 ]]; then
+    log_progress_start "$description" "$current_component" "$total_components"
+  else
+    log_progress_start "$description"
   fi
 
-  log_info "Starting component: $description"
-  start_spinner "Installing $description"
-
-  # Execute the component script with visible output
-  # Use tee to both show output and capture for logging
+  # Execute the component script with visible output and timeout
   local temp_output
   temp_output=$(mktemp)
+  local start_time
+  start_time=$(date +%s)
+  local exit_code=0
+  local timeout_happened=false
 
-  if bash "$script_path" 2>&1 | tee "$temp_output"; then
-    stop_spinner "Installing $description"
-    log_success "Component completed: $description"
-    rm -f "$temp_output"
-    return 0
+  # Run the script with timeout to prevent hanging and show output in real-time
+  # Use tee with process substitution to avoid pipe issues
+  if timeout --foreground "$COMPONENT_TIMEOUT" bash "$script_path" 2>&1 | tee "$temp_output"; then
+    exit_code=0
   else
-    local exit_code=${PIPESTATUS[0]}
-    stop_spinner "Installing $description"
-    log_error "Component failed: $description (exit code: $exit_code)"
+    exit_code=$?
+    # Check if it was a timeout (124 is the exit code for timeout)
+    if [[ $exit_code -eq 124 ]]; then
+      timeout_happened=true
+      log_progress_update "$description" "Operation timed out after ${COMPONENT_TIMEOUT}s"
+    fi
+  fi
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+
+  # Format duration for display
+  local duration_str=""
+  if [[ $duration -ge 3600 ]]; then
+    duration_str="$((duration / 3600))h $(((duration % 3600) / 60))m $((duration % 60))s"
+  elif [[ $duration -ge 60 ]]; then
+    duration_str="$((duration / 60))m $((duration % 60))s"
+  else
+    duration_str="${duration}s"
+  fi
+
+  # Report completion with status
+  if [[ "$exit_code" -eq 0 ]]; then
+    # Report successful completion
+    if [[ "$current_component" -gt 0 && "$total_components" -gt 0 ]]; then
+      log_progress_complete "$description" "SUCCESS" "$current_component" "$total_components"
+    else
+      log_progress_complete "$description" "SUCCESS"
+    fi
+    log_component_result "$description" "SUCCESS" "Completed in ${duration_str}"
+  else
+    # Report failure with details
+    local status="FAILED"
+    local details="Exit code: ${exit_code}, Duration: ${duration_str}"
+
+    if [[ "$timeout_happened" == "true" ]]; then
+      details="TIMED OUT after ${COMPONENT_TIMEOUT}s. ${details}"
+    fi
+
+    if [[ "$current_component" -gt 0 && "$total_components" -gt 0 ]]; then
+      log_progress_complete "$description" "FAILED" "$current_component" "$total_components"
+    else
+      log_progress_complete "$description" "FAILED"
+    fi
+    log_component_result "$description" "FAILED" "$details"
+
+    # Format duration for display
+    local duration_str=""
+    if [[ $duration -ge 60 ]]; then
+      duration_str="$((duration / 60))m $((duration % 60))s"
+    else
+      duration_str="${duration}s"
+    fi
+
+    # Check if it was a timeout
+    if [[ $exit_code -eq 124 ]]; then
+      log_error "Component timed out after ${COMPONENT_TIMEOUT}s: $description"
+      log_substep "Installation timed out" "FAILED" "Component: $description"
+    else
+      log_error "Component failed: $description (exit code: $exit_code, duration: $duration_str)"
+      log_substep "Installation failed" "FAILED" "Exit code: $exit_code"
+    fi
+
     # Log the last few lines of output for debugging
     if [[ -f "$temp_output" && -s "$temp_output" ]]; then
       log_error "Last output from failed component:"
@@ -405,7 +487,33 @@ install_component() {
         log_error "  $line"
       done
     fi
+
+    if [[ "$current_component" -gt 0 && "$total_components" -gt 0 ]]; then
+      log_step_complete "$description" "$current_component" "$total_components" "FAILED"
+    fi
+
     rm -f "$temp_output"
     return $exit_code
+  fi
+}
+
+# Safer update_package_index with timeout and better error handling
+update_package_index() {
+  log_substep "Updating package index" "IN PROGRESS"
+
+  local start_time=$(date +%s)
+  if timeout 120 sudo apt-get update -y; then
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    log_substep "Package index updated" "SUCCESS" "Completed in ${duration}s"
+    return 0
+  else
+    local exit_code=$?
+    if [[ $exit_code -eq 124 ]]; then
+      log_substep "Package index update" "FAILED" "Timed out after 120s"
+    else
+      log_substep "Package index update" "FAILED" "Exit code: $exit_code"
+    fi
+    return 1
   fi
 }

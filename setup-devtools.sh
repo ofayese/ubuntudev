@@ -1,235 +1,169 @@
 #!/usr/bin/env bash
-# setup-devtools.sh - Dev tools setup using util-install
+# setup-devtools.sh - Dev tools setup with improved progress reporting and timeout protection
 # Version: 1.0.0
-# Last updated: 2025-06-13
+# Last updated: 2025-06-14
 set -euo pipefail
 
-# shellcheck disable=SC2034  # VERSION used in logging/reporting
-if [[ -z "${VERSION:-}" ]]; then
-  VERSION="1.0.0"
-  readonly VERSION
-fi
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 
-# Script directory (only declare once globally)
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  readonly SCRIPT_DIR
-fi
-
-# Dry-run mode support (only declare once globally)
-if [[ -z "${DRY_RUN:-}" ]]; then
-  DRY_RUN="${DRY_RUN:-false}"
-  readonly DRY_RUN
-fi
-
-# Operating system detection for cross-platform compatibility (only declare once globally)
-if [[ -z "${OS_TYPE:-}" ]]; then
-  OS_TYPE="$(uname -s)"
-  readonly OS_TYPE
-fi
-
-# Source utility modules with error checking
+# Source utility modules
 source "$SCRIPT_DIR/util-log.sh" || {
   echo "FATAL: Failed to source util-log.sh" >&2
   exit 1
 }
-source "$SCRIPT_DIR/util-env.sh" || {
-  echo "FATAL: Failed to source util-env.sh" >&2
-  exit 1
-}
+
 source "$SCRIPT_DIR/util-install.sh" || {
   echo "FATAL: Failed to source util-install.sh" >&2
   exit 1
 }
 
-# Use more accessible log path
-readonly LOGFILE="${HOME}/.cache/ubuntu-dev-tools.log}"
-mkdir -p "$(dirname "$LOGFILE")"
-init_logging "$LOGFILE"
-
-# Set up error handling - disable automatic exit on error and handle manually
-set +e # Don't exit on errors, handle them manually
-
-# Define installation steps for progress tracking
-declare -a INSTALL_STEPS=(
-  "update_package_index"
-  "system_monitoring"
-  "cli_utilities"
-  "eza_from_github"
-  "zsh_setup"
-)
-
+# Total number of setup steps for progress tracking
+readonly TOTAL_STEPS=5
 current_step=0
-total_steps=${#INSTALL_STEPS[@]}
 
-# Step 1: Update package index
-((current_step++))
-log_info "[$current_step/$total_steps] Updating package index..."
-show_progress "$current_step" "$total_steps" "DevTools Setup"
-start_spinner "Updating package index"
+# Start setup with timestamped header
+log_step_start "DevTools Setup" $((++current_step)) "$TOTAL_STEPS"
 
-# Update with error handling
-if sudo apt-get update -y >/dev/null 2>&1; then
-  log_success "Package index updated successfully"
+# 1. Update package index with timeout protection
+log_substep "Updating package index" "IN PROGRESS"
+if run_with_timeout "sudo apt-get update -y" "Package index update" 120; then
+  log_substep "Package index updated" "SUCCESS"
 else
-  log_warning "Package index update had some issues, but continuing..."
+  log_substep "Package index update" "WARNING" "Continuing despite issues"
 fi
 
-stop_spinner "Updating package index"
-
-# Step 2: Install system monitoring tools
-((current_step++))
-log_info "[$current_step/$total_steps] Installing system monitoring tools..."
-show_progress "$current_step" "$total_steps" "DevTools Setup"
-start_spinner "Installing system monitoring tools"
-
-# Install packages individually with error tolerance
+# 2. Install system monitoring tools with progress tracking
+log_substep "Installing system monitoring tools" "IN PROGRESS"
 monitoring_packages=(htop btop glances ncdu iftop)
-failed_monitoring=()
+total_packages=${#monitoring_packages[@]}
+installed=0
+failed=()
 
 for pkg in "${monitoring_packages[@]}"; do
-  log_info "Attempting to install $pkg..."
-  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1; then
-    log_success "Installed $pkg"
+  ((installed++))
+  show_progress "$installed" "$total_packages" "Installing monitoring tools"
+
+  if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkg" "Installing $pkg" 120; then
+    log_substep "Installing $pkg" "SUCCESS"
   else
-    log_warning "Failed to install $pkg - may not be available"
-    failed_monitoring+=("$pkg")
+    log_substep "Installing $pkg" "WARNING" "Failed to install, continuing anyway"
+    failed+=("$pkg")
   fi
 done
 
-if [ ${#failed_monitoring[@]} -gt 0 ]; then
-  log_warning "Some monitoring tools failed to install: ${failed_monitoring[*]}"
-  log_info "Basic monitoring tools (like htop) should still be available"
+if [ ${#failed[@]} -gt 0 ]; then
+  log_substep "Monitoring tools installation" "WARNING" "${#failed[@]} packages failed: ${failed[*]}"
+else
+  log_substep "Monitoring tools installation" "SUCCESS" "All packages installed successfully"
 fi
 
-stop_spinner "Installing system monitoring tools"
+log_step_complete "Install System Monitoring Tools" "$current_step" "$TOTAL_STEPS"
 
-# Step 3: Install CLI utilities
-((current_step++))
-log_info "[$current_step/$total_steps] Installing CLI utilities..."
-show_progress "$current_step" "$total_steps" "DevTools Setup"
-start_spinner "Installing CLI utilities"
-
-# Install packages individually with error tolerance
+# 3. Install CLI utilities with progress tracking
+log_step_start "Install CLI Utilities" $((++current_step)) "$TOTAL_STEPS"
 cli_packages=(bat fzf ripgrep git wget curl)
-failed_cli=()
+total_packages=${#cli_packages[@]}
+installed=0
+failed=()
 
 for pkg in "${cli_packages[@]}"; do
-  log_info "Attempting to install $pkg..."
-  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1; then
-    log_success "Installed $pkg"
+  ((installed++))
+  show_progress "$installed" "$total_packages" "Installing CLI utilities"
+
+  if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkg" "Installing $pkg" 120; then
+    log_substep "Installing $pkg" "SUCCESS"
   else
-    log_warning "Failed to install $pkg - may not be available"
-    failed_cli+=("$pkg")
+    log_substep "Installing $pkg" "WARNING" "Failed to install, continuing anyway"
+    failed+=("$pkg")
   fi
 done
 
-if [ ${#failed_cli[@]} -gt 0 ]; then
-  log_warning "Some CLI utilities failed to install: ${failed_cli[*]}"
-  log_info "Trying alternative names or fallbacks..."
-
-  # Try alternative package names
-  for pkg in "${failed_cli[@]}"; do
-    case "$pkg" in
-    "bat")
-      if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y batcat >/dev/null 2>&1; then
-        log_success "Installed batcat (bat alternative)"
-        echo 'alias bat=batcat' >>"$HOME/.bashrc"
-      fi
-      ;;
-    "ripgrep")
-      if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rg >/dev/null 2>&1; then
-        log_success "Installed rg (ripgrep alternative)"
-      fi
-      ;;
-    esac
-  done
-fi
-
-stop_spinner "Installing CLI utilities"
-
-# Step 4: Install eza from GitHub
-((current_step++))
-log_info "[$current_step/$total_steps] Installing eza from GitHub..."
-show_progress "$current_step" "$total_steps" "DevTools Setup"
-start_spinner "Installing eza from GitHub"
-
-# Check if eza is already installed
-if command -v eza &>/dev/null; then
-  log_info "eza is already installed, skipping..."
-else
-  log_info "Attempting to install eza..."
-
-  # First try installing from apt (available in newer Ubuntu/Debian)
-  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y eza >/dev/null 2>&1; then
-    log_success "eza installed successfully via apt"
+# Try alternative package names for failed installs
+command -v bat &>/dev/null || {
+  log_substep "Installing batcat (bat alternative)" "IN PROGRESS"
+  if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends batcat" "Installing batcat" 120; then
+    log_substep "Installing batcat alias" "IN PROGRESS"
+    echo 'alias bat=batcat' >>"$HOME/.bashrc"
+    log_substep "Installing batcat" "SUCCESS" "Added alias bat=batcat to .bashrc"
   else
-    log_info "eza not available via apt, trying binary download..."
+    log_substep "Installing batcat" "WARNING" "Failed to install alternative"
+  fi
+}
 
-    # Try downloading the binary version from GitHub
+log_step_complete "Install CLI Utilities" "$current_step" "$TOTAL_STEPS"
+
+# 4. Install eza from GitHub with proper progress reporting
+log_step_start "Install eza File Lister" $((++current_step)) "$TOTAL_STEPS"
+
+if command -v eza &>/dev/null; then
+  log_substep "eza already installed" "SUCCESS" "$(eza --version 2>&1 | head -n1 || echo 'Unknown version')"
+else
+  log_substep "Installing eza via apt" "IN PROGRESS"
+  if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y eza" "Installing eza via apt" 120; then
+    log_substep "Installing eza via apt" "SUCCESS"
+  else
+    log_substep "eza not available via apt" "WARNING" "Trying binary download instead"
     temp_dir="/tmp/eza_install_$$"
     mkdir -p "$temp_dir"
 
-    if wget -q -O "$temp_dir/eza.tar.gz" "https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz"; then
-      log_info "Downloaded eza binary, installing..."
-      if (cd "$temp_dir" && tar -xzf eza.tar.gz && sudo install -m 755 eza /usr/local/bin/eza); then
-        log_success "eza installed successfully from binary"
-        rm -rf "$temp_dir"
+    log_substep "Downloading eza from GitHub" "IN PROGRESS"
+    if run_with_timeout "wget -q -O \"$temp_dir/eza.tar.gz\" \"https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz\"" "Downloading eza" 60; then
+      log_substep "Installing eza binary" "IN PROGRESS"
+      if run_with_timeout "(cd \"$temp_dir\" && tar -xzf eza.tar.gz && sudo install -m 755 eza /usr/local/bin/eza)" "Installing eza binary" 30; then
+        log_substep "Installing eza binary" "SUCCESS"
       else
-        log_warning "Failed to install eza binary"
-        rm -rf "$temp_dir"
+        log_substep "Installing eza binary" "FAILED" "Could not extract or install"
+        log_substep "Creating eza alias" "IN PROGRESS"
+        touch "$HOME/.bashrc"
+        if ! grep -q 'alias eza=' "$HOME/.bashrc"; then
+          echo 'alias eza="ls --color=auto"' >>"$HOME/.bashrc"
+          log_substep "Created eza alias" "SUCCESS" "Using ls as fallback"
+        fi
       fi
     else
-      log_warning "Failed to download eza binary. Creating alias to ls instead."
-      # Ensure .bashrc exists and add the alias
+      log_substep "Downloading eza" "FAILED" "Could not download from GitHub"
+      log_substep "Creating eza alias" "IN PROGRESS"
       touch "$HOME/.bashrc"
       if ! grep -q 'alias eza=' "$HOME/.bashrc"; then
         echo 'alias eza="ls --color=auto"' >>"$HOME/.bashrc"
+        log_substep "Created eza alias" "SUCCESS" "Using ls as fallback"
       fi
-      log_info "eza alias created, will use ls with color output"
     fi
+
+    # Cleanup temp directory
+    rm -rf "$temp_dir"
   fi
 fi
 
-stop_spinner "Installing eza from GitHub"
+log_step_complete "Install eza File Lister" "$current_step" "$TOTAL_STEPS"
 
-# Step 5: Install Zsh & Oh-My-Zsh
-((current_step++))
-log_info "[$current_step/$total_steps] Installing Zsh & Oh-My-Zsh..."
-show_progress "$current_step" "$total_steps" "DevTools Setup"
-start_spinner "Installing Zsh & Oh-My-Zsh"
+# 5. Install Zsh & Oh-My-Zsh with proper progress reporting
+log_step_start "Install Zsh & Oh-My-Zsh" $((++current_step)) "$TOTAL_STEPS"
 
-# Install Zsh with error handling
-if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zsh >/dev/null 2>&1; then
-  log_success "Installed zsh"
+log_substep "Installing Zsh" "IN PROGRESS"
+if run_with_timeout "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zsh" "Installing Zsh" 180; then
+  log_substep "Installing Zsh" "SUCCESS"
+else
+  log_substep "Installing Zsh" "WARNING" "Failed to install Zsh, continuing anyway"
+fi
 
-  # Install Oh-My-Zsh if not already present
-  if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-    log_info "Installing Oh-My-Zsh..."
-    if timeout 60 sh -c "RUNZSH=no CHSH=no KEEP_ZSHRC=yes $(wget --timeout=30 -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" >/dev/null 2>&1; then
-      log_success "Oh-My-Zsh installed successfully"
-    else
-      log_warning "Failed to install Oh-My-Zsh, but zsh is available"
-    fi
+if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+  log_substep "Installing Oh-My-Zsh" "IN PROGRESS"
+  if run_with_timeout "RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c \"$(wget --timeout=30 -qO- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\"" "Installing Oh-My-Zsh" 180; then
+    log_substep "Installing Oh-My-Zsh" "SUCCESS"
   else
-    log_info "Oh-My-Zsh is already installed"
+    log_substep "Installing Oh-My-Zsh" "WARNING" "Failed to install Oh-My-Zsh"
   fi
 else
-  log_warning "Failed to install zsh"
+  log_substep "Oh-My-Zsh" "SUCCESS" "Already installed"
 fi
 
-stop_spinner "Installing Zsh & Oh-My-Zsh"
+log_step_complete "Install Zsh & Oh-My-Zsh" "$current_step" "$TOTAL_STEPS"
 
-log_success "DevTools setup completed successfully!"
-
-# Report any issues but don't fail the entire script
-total_failed=$((${#failed_monitoring[@]} + ${#failed_cli[@]}))
-if [ $total_failed -gt 0 ]; then
-  log_warning "Some optional packages failed to install, but core development tools are ready"
-  log_info "You can manually install missing packages later if needed"
-fi
-
-# Verify critical tools are available
+# Verify critical tools are installed
+log_substep "Verifying critical tools" "IN PROGRESS"
 critical_missing=()
 command -v wget >/dev/null || critical_missing+=("wget")
 command -v curl >/dev/null || critical_missing+=("curl")
@@ -238,10 +172,11 @@ command -v git >/dev/null || critical_missing+=("git")
 if [ ${#critical_missing[@]} -gt 0 ]; then
   log_error "Critical tools missing: ${critical_missing[*]}"
   log_error "DevTools setup failed - essential tools not available"
-  finish_logging
   exit 1
+else
+  log_substep "Verifying critical tools" "SUCCESS" "All critical tools available"
 fi
 
-log_success "All critical development tools are available"
-finish_logging
+# Final summary with timestamp
+log_success "DevTools setup completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
 exit 0
