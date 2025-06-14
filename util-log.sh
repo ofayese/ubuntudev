@@ -4,6 +4,11 @@
 # Last Updated: 2025-06-13
 # Version: 1.0.0
 
+# No-op spinner cleanup for compatibility with scripts expecting this function
+cleanup_all_spinners() {
+  :
+}
+
 set -euo pipefail
 
 # Load guard to prevent multiple sourcing
@@ -472,15 +477,18 @@ log_progress_start() {
   timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
   if [[ -n "$current" && -n "$total" ]]; then
-    local percentage=$((current * 100 / total))
-    local header=$(printf '═%.0s' $(seq 1 72))
+    local percentage
+    percentage=$((current * 100 / total))
+    local header
+    header=$(printf '═%.0s' $(seq 1 72))
 
     echo ""
     echo -e "\e[1;36m$header\e[0m"
     echo -e "\e[1;36m [$timestamp] STARTING STEP [$current/$total] ($percentage%): $task\e[0m"
     echo -e "\e[1;36m$header\e[0m"
   else
-    local header=$(printf '═%.0s' $(seq 1 72))
+    local header
+    header=$(printf '═%.0s' $(seq 1 72))
 
     echo ""
     echo -e "\e[1;36m$header\e[0m"
@@ -490,9 +498,13 @@ log_progress_start() {
 
   # Record start time for duration calculation
   if [[ -n "$current" ]]; then
-    eval "export _progress_start_time_$current=$(date +%s)"
+    local _progress_start_time_var
+    _progress_start_time_var=$(date +%s)
+    eval "export _progress_start_time_$current=$_progress_start_time_var"
   else
-    export _progress_start_time=$(date +%s)
+    local _progress_start_time_var
+    _progress_start_time_var=$(date +%s)
+    export _progress_start_time=$_progress_start_time_var
   fi
 }
 
@@ -523,9 +535,10 @@ log_progress_complete() {
 
   # Calculate duration if we have a start time
   if [[ -n "$start_time" ]]; then
-    local end_time=$(date +%s)
-    local elapsed=$((end_time - start_time))
-
+    local end_time
+    end_time=$(date +%s)
+    local elapsed
+    elapsed=$((end_time - start_time))
     # Format duration
     if [[ $elapsed -ge 3600 ]]; then
       duration="$((elapsed / 3600))h $(((elapsed % 3600) / 60))m $((elapsed % 60))s"
@@ -535,11 +548,12 @@ log_progress_complete() {
       duration="${elapsed}s"
     fi
   fi
-
-  local footer=$(printf '─%.0s' $(seq 1 72))
+  local footer
+  footer=$(printf '─%.0s' $(seq 1 72))
 
   if [[ -n "$current" && -n "$total" ]]; then
-    local percentage=$((current * 100 / total))
+    local percentage
+    percentage=$((current * 100 / total))
 
     echo ""
     if [[ "$status" == "SUCCESS" ]]; then
@@ -1195,9 +1209,11 @@ log_progress_start() {
 
   # Record start time for duration calculation
   if [[ -n "$current" ]]; then
-    eval "export _progress_start_time_$current=$(date +%s)"
+    eval "export _progress_start_time_$current"
+    _progress_start_time=$(date +%s)
   else
-    export _progress_start_time=$(date +%s)
+    export _progress_start_time
+    _progress_start_time=$(date +%s)
   fi
 }
 

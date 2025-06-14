@@ -1,0 +1,3 @@
+exclude=SC1090
+exclude=SC2034
+exclude=SC2155

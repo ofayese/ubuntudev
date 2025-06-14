@@ -385,8 +385,7 @@ install_component() {
   local current_component="${4:-0}"
   local total_components="${5:-0}"
 
-  # Default timeout: 10 minutes (600 seconds)
-  local COMPONENT_TIMEOUT=${COMPONENT_TIMEOUT:-600}
+  # Use global readonly COMPONENT_TIMEOUT (default: 10 minutes/600 seconds)
 
   # Resolve script path
   if [[ -f "$script" ]]; then

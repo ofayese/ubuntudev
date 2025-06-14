@@ -30,34 +30,6 @@
 
 ### Clone and Setup
 
-```bash
-# Clone this repository
-git clone <repository-url>
-cd ubuntudev
-
-# Make scripts executable
-chmod +x *.sh
-
-# Fix line endings if coming from Windows
-pwsh -ExecutionPolicy Bypass -File fix-line-endings.ps1
-```
-
-### Install Everything
-
-```bash
-# For a complete installation (recommended)
-./install-robust.sh --all
-
-# For specific components
-./install-robust.sh --devtools --terminal --lang-sdks
-
-# With debugging enabled
-./install-robust.sh --all --debug
-
-# Resume from a previous failed installation
-./install-robust.sh --resume
-```
-
 ## 📦 Available Components
 
 | Component | Description | Flag |
