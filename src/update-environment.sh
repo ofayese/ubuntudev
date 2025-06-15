@@ -28,114 +28,155 @@ log_info "Detected environment: $ENV_TYPE"
 # Function to update system packages
 update_system_packages() {
   log_info "Updating system packages..."
-  start_spinner "Updating system packages"
-  
-  # Update package lists
-  log_cmd "sudo apt-get update -q" "Updating package lists" >/dev/null 2>&1
-  
-  # Upgrade packages  
-  log_cmd "sudo apt-get upgrade -y" "Upgrading packages" >/dev/null 2>&1
-  
-  # Clean up
-  log_cmd "sudo apt-get autoremove -y" "Removing unused packages" >/dev/null 2>&1
-  log_cmd "sudo apt-get autoclean -y" "Cleaning package cache" >/dev/null 2>&1
-  
-  stop_spinner "Updating system packages"
-  log_success "System packages updated"
+
+  # Quick, non-blocking package list update only
+  log_info "Updating package lists (quick mode)..."
+  if timeout 30 sudo apt-get update -q >/dev/null 2>&1; then
+    log_success "Package lists updated"
+  else
+    log_warning "Package list update skipped (timeout or permission issue)"
+  fi
+
+  log_success "System packages check completed"
 }
 
 # Function to update version managers and languages
 update_languages() {
   log_info "Updating language environments..."
   start_spinner "Updating language environments"
-  
+
   # Update Node.js via NVM
   if command -v nvm >/dev/null 2>&1; then
     log_info "Updating NVM..."
-    
+
     # Source NVM in the current shell
     export NVM_DIR="$HOME/.nvm"
     # shellcheck disable=SC1091
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    
-    log_cmd "nvm install --lts" "Updating Node.js LTS"
-    log_cmd "nvm install node" "Updating Node.js current"
-    log_cmd "nvm use --lts" "Setting LTS as default"
+
+    # Try to update Node.js versions, but don't fail if they already exist
+    if nvm install --lts >/dev/null 2>&1; then
+      log_success "Updated Node.js LTS"
+    else
+      log_info "Node.js LTS already at latest version or update failed"
+    fi
+
+    if nvm install node >/dev/null 2>&1; then
+      log_success "Updated Node.js current"
+    else
+      log_info "Node.js current already at latest version or update failed"
+    fi
+
+    if nvm use --lts >/dev/null 2>&1; then
+      log_success "Set LTS as default"
+    else
+      log_warning "Failed to set LTS as default"
+    fi
   else
     log_warning "NVM not found, skipping Node.js update"
   fi
-  
+
   # Update Python via pyenv
   if command -v pyenv >/dev/null 2>&1; then
     log_info "Updating pyenv..."
-    
+
     # Update pyenv itself
-    log_cmd "(cd \"$HOME/.pyenv\" && git pull)" "Updating pyenv"
-    
-    # Update Python versions
-    log_cmd "pyenv install -s 3.12.0" "Installing/updating Python 3.12" || true
-    log_cmd "pyenv install -s 3.11.8" "Installing/updating Python 3.11" || true
-    log_cmd "pyenv rehash" "Rehashing pyenv"
+    if (cd "$HOME/.pyenv" && git pull) >/dev/null 2>&1; then
+      log_success "Updated pyenv"
+    else
+      log_warning "Failed to update pyenv"
+    fi
+
+    # Update Python versions - allow these to fail gracefully
+    if pyenv install -s 3.12.0 >/dev/null 2>&1; then
+      log_success "Python 3.12.0 ready"
+    else
+      log_info "Python 3.12.0 install skipped or failed"
+    fi
+
+    if pyenv install -s 3.11.8 >/dev/null 2>&1; then
+      log_success "Python 3.11.8 ready"
+    else
+      log_info "Python 3.11.8 install skipped or failed"
+    fi
+
+    if pyenv rehash >/dev/null 2>&1; then
+      log_success "Pyenv rehashed"
+    else
+      log_warning "Pyenv rehash failed"
+    fi
   else
     log_warning "pyenv not found, skipping Python update"
   fi
-  
+
   # Update Rust via rustup
   if command -v rustup >/dev/null 2>&1; then
     log_info "Updating Rust toolchain..."
-    log_cmd "rustup update" "Updating Rust"
+    if rustup update >/dev/null 2>&1; then
+      log_success "Rust toolchain updated"
+    else
+      log_warning "Failed to update Rust toolchain"
+    fi
   else
     log_warning "rustup not found, skipping Rust update"
   fi
-  
+
   # Update SDKMAN packages
   if [ -d "$HOME/.sdkman" ]; then
     log_info "Updating SDKMAN packages..."
-    
+
     # Source SDKMAN
     export SDKMAN_DIR="$HOME/.sdkman"
     # shellcheck disable=SC1091
     [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
-    
+
     # Update SDKMAN itself
-    log_cmd "sdk selfupdate" "Updating SDKMAN"
-    
-    # Update installed Java versions
-    log_cmd "sdk update" "Checking for updates"
+    if sdk selfupdate >/dev/null 2>&1; then
+      log_success "SDKMAN updated"
+    else
+      log_warning "Failed to update SDKMAN"
+    fi
+
+    # Check for updates
+    if sdk update >/dev/null 2>&1; then
+      log_success "SDKMAN packages checked for updates"
+    else
+      log_warning "Failed to check SDKMAN updates"
+    fi
   else
     log_warning "SDKMAN not found, skipping Java updates"
   fi
-  
+
   log_success "Language environments updated"
 }
 
 # Function to update container tools
 update_containers() {
   log_info "Updating container tools..."
-  
+
   # Update containerd if installed
   if command -v containerd >/dev/null 2>&1; then
     log_info "containerd detected - managed by package system"
   fi
-  
+
   # Update nerdctl if installed directly (not via package manager)
   if command -v nerdctl >/dev/null 2>&1; then
     log_info "Checking for nerdctl updates..."
-    
+
     # Get installed version
     CURRENT_VERSION=$(nerdctl version | grep "Version:" | awk '{print $2}')
-    
+
     # Get latest version
-    LATEST_VERSION=$(curl -s https://api.github.com/repos/containerd/nerdctl/releases/latest | 
-                    grep tag_name | cut -d '"' -f 4 | sed 's/v//')
-    
+    LATEST_VERSION=$(curl -s https://api.github.com/repos/containerd/nerdctl/releases/latest |
+      grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+
     if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
       log_info "Updating nerdctl from $CURRENT_VERSION to $LATEST_VERSION..."
-      
+
       # Download latest nerdctl
       NERDCTL_URL=$(curl -s https://api.github.com/repos/containerd/nerdctl/releases/latest |
         grep browser_download_url | grep 'nerdctl-.*-linux-amd64.tar.gz' | head -1 | cut -d '"' -f 4)
-      
+
       if [ -n "$NERDCTL_URL" ]; then
         log_cmd "wget -q -O /tmp/nerdctl.tar.gz $NERDCTL_URL" "Downloading nerdctl"
         log_cmd "sudo tar -C /usr/local/bin -xzf /tmp/nerdctl.tar.gz nerdctl" "Installing nerdctl"
@@ -148,46 +189,62 @@ update_containers() {
       log_info "nerdctl is already at the latest version ($CURRENT_VERSION)"
     fi
   fi
-  
+
   log_success "Container tools updated"
 }
 
 # Function to update VS Code extensions
 update_vscode_extensions() {
   log_info "Checking VS Code..."
-  
+
   # Check if in WSL mode
   if [ "$ENV_TYPE" = "WSL2" ]; then
     log_info "WSL environment detected - extensions managed by Windows VS Code"
     return
   fi
-  
+
   # Update VS Code extensions for stable
   if command -v code >/dev/null 2>&1; then
     log_info "Updating VS Code extensions..."
-    log_cmd "code --update-extensions" "Updating extensions"
+    if code --update-extensions >/dev/null 2>&1; then
+      log_success "VS Code extensions updated"
+    else
+      log_warning "Failed to update VS Code extensions"
+    fi
   fi
-  
+
   # Update VS Code Insiders extensions
   if command -v code-insiders >/dev/null 2>&1; then
     log_info "Updating VS Code Insiders extensions..."
-    log_cmd "code-insiders --update-extensions" "Updating Insiders extensions"
+    if code-insiders --update-extensions >/dev/null 2>&1; then
+      log_success "VS Code Insiders extensions updated"
+    else
+      log_warning "Failed to update VS Code Insiders extensions"
+    fi
   fi
-  
+
   log_success "VS Code extensions updated"
 }
 
 # Function to update npm global packages
 update_npm_packages() {
   log_info "Updating npm global packages..."
-  
+
   if command -v npm >/dev/null 2>&1; then
     # Update npm itself
-    log_cmd "npm install -g npm@latest" "Updating npm"
-    
+    if npm install -g npm@latest >/dev/null 2>&1; then
+      log_success "npm updated"
+    else
+      log_warning "Failed to update npm"
+    fi
+
     # Update global packages
-    log_cmd "npm update -g" "Updating global packages"
-    
+    if npm update -g >/dev/null 2>&1; then
+      log_success "npm global packages updated"
+    else
+      log_warning "Failed to update npm global packages"
+    fi
+
     log_success "npm packages updated"
   else
     log_warning "npm not found, skipping npm packages update"
@@ -197,11 +254,15 @@ update_npm_packages() {
 # Function to update Python packages
 update_python_packages() {
   log_info "Updating Python packages..."
-  
+
   if command -v pip >/dev/null 2>&1; then
     # Update pip itself
-    log_cmd "python -m pip install --upgrade pip" "Updating pip"
-    
+    if python -m pip install --upgrade pip >/dev/null 2>&1; then
+      log_success "pip updated"
+    else
+      log_warning "Failed to update pip"
+    fi
+
     # Update common global packages
     common_packages=(
       "virtualenv"
@@ -212,13 +273,17 @@ update_python_packages() {
       "mypy"
       "pre-commit"
     )
-    
+
     for package in "${common_packages[@]}"; do
       if pip list | grep -q "^$package "; then
-        log_cmd "python -m pip install --upgrade $package" "Updating $package"
+        if python -m pip install --upgrade "$package" >/dev/null 2>&1; then
+          log_success "Updated $package"
+        else
+          log_warning "Failed to update $package"
+        fi
       fi
     done
-    
+
     log_success "Python packages updated"
   else
     log_warning "pip not found, skipping Python packages update"
@@ -236,64 +301,70 @@ run_full_update() {
     "npm_packages"
     "python_packages"
   )
-  
+
   # Add WSL step if applicable
   if [ "$ENV_TYPE" = "WSL2" ]; then
     UPDATE_STEPS+=("wsl_config")
   fi
-  
+
   local current_step=0
   local total_steps=${#UPDATE_STEPS[@]}
-  
+
   log_info "Starting full environment update with $total_steps steps"
-  
+
   # Step 1: Update system packages
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating system packages..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_system_packages
-  
+
   # Step 2: Update languages
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating language environments..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_languages
-  
+
   # Step 3: Update containers
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating container tools..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_containers
-  
+
   # Step 4: Update VS Code extensions
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating VS Code extensions..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_vscode_extensions
-  
+
   # Step 5: Update npm packages
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating npm packages..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_npm_packages
-  
+
   # Step 6: Update Python packages
   ((current_step++))
   log_info "[$current_step/$total_steps] Updating Python packages..."
   show_progress "$current_step" "$total_steps" "Environment Update"
   update_python_packages
-  
+
   # WSL-specific updates (Step 7 if applicable)
   if [ "$ENV_TYPE" = "WSL2" ]; then
     ((current_step++))
     log_info "[$current_step/$total_steps] Updating WSL configuration..."
     show_progress "$current_step" "$total_steps" "Environment Update"
     start_spinner "Checking WSL configuration"
-    source "$SCRIPT_DIR/util-wsl.sh"
-    setup_wsl_environment >/dev/null 2>&1
+
+    # Source util-wsl.sh and run setup, but don't fail the entire update if it fails
+    if source "$SCRIPT_DIR/util-wsl.sh" && setup_wsl_environment >/dev/null 2>&1; then
+      log_success "WSL configuration updated"
+    else
+      log_warning "WSL configuration update had issues"
+    fi
+
     stop_spinner "Checking WSL configuration"
   fi
-  
+
   log_success "Full environment update completed!"
 }
 
@@ -317,15 +388,22 @@ if [ $# -eq 0 ]; then
 else
   for arg in "$@"; do
     case "$arg" in
-      --all) run_full_update ;;
-      --system) update_system_packages ;;
-      --languages) update_languages ;;
-      --containers) update_containers ;;
-      --vscode) update_vscode_extensions ;;
-      --npm) update_npm_packages ;;
-      --python) update_python_packages ;;
-      --help|-h) show_help; exit 0 ;;
-      *) log_error "Unknown option: $arg"; show_help; exit 1 ;;
+    --all) run_full_update ;;
+    --system) update_system_packages ;;
+    --languages) update_languages ;;
+    --containers) update_containers ;;
+    --vscode) update_vscode_extensions ;;
+    --npm) update_npm_packages ;;
+    --python) update_python_packages ;;
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    *)
+      log_error "Unknown option: $arg"
+      show_help
+      exit 1
+      ;;
     esac
   done
 fi

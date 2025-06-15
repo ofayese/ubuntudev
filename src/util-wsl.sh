@@ -176,7 +176,10 @@ nameserver 9.9.9.9  # Quad9
 EOF
 
   # Make it immutable to prevent WSL from overwriting it
-  sudo chattr +i /etc/resolv.conf
+  sudo chattr +i /etc/resolv.conf 2>/dev/null || {
+    log_warning "Cannot set immutable attribute on /etc/resolv.conf (chattr not supported)"
+    log_info "DNS configuration applied but may be overwritten by WSL"
+  }
 
   log_success "Custom DNS resolvers configured (Cloudflare, Google, Quad9)"
   log_warning "WSL restart required for DNS changes to take full effect"
