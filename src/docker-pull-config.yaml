@@ -28,6 +28,43 @@ resource_management:
     max_concurrent_downloads: 4
     prefer_local_mirror: true
 
+# Docker volume management configuration
+docker_volume_management:
+  enabled: true
+  cache_volume:
+    name: "docker-pull-essentials-cache"
+    enable_layer_caching: true
+    max_size_gb: 50 # Maximum cache volume size
+    cleanup_threshold_percent: 85 # Clean when volume reaches this usage
+    retention_policy:
+      keep_recent_days: 7 # Keep layers from last 7 days
+      keep_frequent_images: true # Keep frequently pulled images
+  state_volume:
+    name: "docker-pull-essentials-state"
+    enable_resume_state: true
+    max_size_gb: 5
+    backup_state: true # Backup state before major operations
+  cleanup_policies:
+    auto_cleanup_enabled: true
+    cleanup_schedule:
+      on_disk_full: true # Clean when disk space critical
+      on_completion: false # Don't clean after successful completion
+      periodic_hours: 24 # Run cleanup every 24 hours
+    preserve_volumes:
+      - "docker-pull-essentials-cache"
+      - "docker-pull-essentials-state"
+      - "*-persistent" # Keep any volumes ending with -persistent
+    cleanup_targets:
+      unused_volumes: true
+      dangling_images: true
+      build_cache: true
+      unused_networks: true
+    advanced_cleanup:
+      enable_on_critical_space: true
+      space_threshold_gb: 5 # Trigger when less than 5GB free
+      aggressive_image_cleanup: true # Remove images older than 72h
+      prune_everything_except_running: false # Don't prune running containers
+
 # Image categories to pull
 # Set enabled: false to skip entire categories
 categories:

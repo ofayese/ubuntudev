@@ -71,13 +71,16 @@
         "distro",
         "DISTRO",
         "esac",
+        "gguf",
         "GKHF",
         "gsub",
         "isinstance",
         "kdialog",
         "libgmp",
         "libtinfo",
-        "pipefail"
+        "pids",
+        "pipefail",
+        "safetensors"
     ],
     // Window and workspace settings
     "window.zoomLevel": 0,

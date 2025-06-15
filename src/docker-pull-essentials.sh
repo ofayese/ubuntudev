@@ -17,6 +17,9 @@
 #   --skip-windows    Skip Windows-specific images
 #   --log-file FILE   Log output to file (default: docker-pull.log)
 #   --resume          Resume from a previous interrupted operation
+#   --advanced-cleanup  Run advanced Docker cleanup with volume management
+#   --cleanup-volumes   Run Docker volume cleanup
+#   --volume-status     Show Docker volume management status and configuration
 #   --help            Show this help message
 
 set -euo pipefail
@@ -52,6 +55,14 @@ ENABLE_CONTENT_TRUST="${DOCKER_CONTENT_TRUST:-false}"
 # shellcheck disable=SC2034  # These may be used in future security enhancements
 VULNERABILITY_SCAN="${ENABLE_VULN_SCAN:-false}"
 ALLOWED_REGISTRIES="${DOCKER_ALLOWED_REGISTRIES:-}"
+
+# Volume management configuration variables (can be overridden by config file)
+VOLUME_MANAGEMENT_ENABLED=true
+CACHE_MAX_SIZE_GB=50
+CACHE_CLEANUP_THRESHOLD=85
+AUTO_CLEANUP_ENABLED=true
+ADVANCED_CLEANUP_ON_CRITICAL=true
+SPACE_THRESHOLD_GB=5
 
 # Counters for reporting (use file-based counters for thread safety)
 declare -i TOTAL_IMAGES=0
@@ -110,6 +121,10 @@ readonly CONFIG_CACHE="${TEMP_DIR}/config.cache"
 readonly PROGRESS_STATE="${TEMP_DIR}/progress.state"
 readonly ERROR_CLASSIFICATION="${TEMP_DIR}/error_classes.log"
 
+# Docker volume management
+readonly DOCKER_PULL_CACHE_VOLUME="docker-pull-essentials-cache"
+readonly DOCKER_PULL_STATE_VOLUME="docker-pull-essentials-state"
+
 # Store start time for duration calculation
 START_TIME="$(date +%s)"
 readonly START_TIME
@@ -119,6 +134,7 @@ cleanup() {
   local exit_code=$?
   if [[ -d "${TEMP_DIR}" ]]; then
     # Don't remove temp directory if in resume mode and there were failures
+    # shellcheck disable=SC2153
     if [[ "${RESUME_MODE}" == "true" ]] && [[ ${FAILED_PULLS} -gt 0 ]]; then
       log_info "Temporary files kept at ${TEMP_DIR} for resume capability"
     else
@@ -307,18 +323,151 @@ get_available_disk() {
   echo "${available}"
 }
 
-# Cleanup functions
+# Enhanced cleanup functions with volume management
 cleanup_partial_downloads() {
   log_info "Cleaning up partial downloads..."
   docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
   docker builder prune -f >/dev/null 2>&1 || true
+
+  # Also check for volume usage issues
+  if ! monitor_volume_usage; then
+    if [[ "${AUTO_CLEANUP_ENABLED}" == "true" ]]; then
+      cleanup_docker_volumes
+    fi
+  fi
+
   log_info "Partial download cleanup completed"
 }
 
 cleanup_old_images() {
   log_info "Cleaning up old unused images..."
   docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
+
+  # Clean up volumes if space is getting tight
+  if ! monitor_volume_usage; then
+    if [[ "${AUTO_CLEANUP_ENABLED}" == "true" ]]; then
+      cleanup_docker_volumes
+    fi
+  fi
+
   log_info "Old image cleanup completed"
+}
+
+# Docker volume management functions
+setup_docker_volumes() {
+  # Check if volume management is enabled
+  if [[ "${VOLUME_MANAGEMENT_ENABLED}" != "true" ]]; then
+    log_debug "Volume management disabled in configuration"
+    return 0
+  fi
+
+  log_debug "Setting up Docker volumes for caching and state management"
+  log_debug "Cache volume: ${DOCKER_PULL_CACHE_VOLUME} (max size: ${CACHE_MAX_SIZE_GB}GB)"
+  log_debug "State volume: ${DOCKER_PULL_STATE_VOLUME}"
+
+  # Create cache volume for layer caching if it doesn't exist
+  if ! docker volume inspect "${DOCKER_PULL_CACHE_VOLUME}" >/dev/null 2>&1; then
+    log_info "Creating Docker cache volume: ${DOCKER_PULL_CACHE_VOLUME}"
+    docker volume create "${DOCKER_PULL_CACHE_VOLUME}" \
+      --label "purpose=docker-pull-cache" \
+      --label "created-by=${SCRIPT_NAME}" \
+      --label "version=${SCRIPT_VERSION}" \
+      --label "max-size-gb=${CACHE_MAX_SIZE_GB}" >/dev/null
+  fi
+
+  # Create state volume for persistent state if it doesn't exist
+  if ! docker volume inspect "${DOCKER_PULL_STATE_VOLUME}" >/dev/null 2>&1; then
+    log_info "Creating Docker state volume: ${DOCKER_PULL_STATE_VOLUME}"
+    docker volume create "${DOCKER_PULL_STATE_VOLUME}" \
+      --label "purpose=docker-pull-state" \
+      --label "created-by=${SCRIPT_NAME}" \
+      --label "version=${SCRIPT_VERSION}" >/dev/null
+  fi
+}
+
+# Get Docker volume usage information
+get_volume_usage() {
+  local volume_name="$1"
+  if docker volume inspect "${volume_name}" >/dev/null 2>&1; then
+    docker system df --format "table {{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}" |
+      grep -i "volumes" | awk '{print $4}' | sed 's/[()]//g' || echo "0%"
+  else
+    echo "N/A"
+  fi
+}
+
+# Clean up unused Docker volumes
+cleanup_docker_volumes() {
+  log_info "Cleaning up unused Docker volumes..."
+
+  # Get volume usage before cleanup
+  local total_volumes_before
+  total_volumes_before=$(docker volume ls -q | wc -l)
+
+  # Prune unused volumes (but preserve our managed volumes)
+  docker volume prune -f --filter "label!=created-by=${SCRIPT_NAME}" >/dev/null 2>&1 || true
+
+  # Get volume usage after cleanup
+  local total_volumes_after
+  total_volumes_after=$(docker volume ls -q | wc -l)
+  local cleaned_count=$((total_volumes_before - total_volumes_after))
+
+  log_info "Volume cleanup completed: removed ${cleaned_count} unused volumes"
+
+  # Show current volume usage for our managed volumes
+  local cache_usage
+  cache_usage=$(get_volume_usage "${DOCKER_PULL_CACHE_VOLUME}")
+  local state_usage
+  state_usage=$(get_volume_usage "${DOCKER_PULL_STATE_VOLUME}")
+
+  log_debug "Cache volume usage: ${cache_usage}, State volume usage: ${state_usage}"
+}
+
+# Advanced Docker cleanup with volume awareness
+advanced_docker_cleanup() {
+  log_info "Performing advanced Docker cleanup with volume management..."
+
+  # Stop any containers using our volumes (if any)
+  docker ps -a --filter "volume=${DOCKER_PULL_CACHE_VOLUME}" --format "{{.ID}}" |
+    xargs -r docker stop >/dev/null 2>&1 || true
+
+  # Clean up build cache
+  docker builder prune -f >/dev/null 2>&1 || true
+
+  # Clean up unused networks
+  docker network prune -f >/dev/null 2>&1 || true
+
+  # Clean up unused volumes (preserving our managed ones)
+  cleanup_docker_volumes
+
+  # Clean up unused images with more aggressive filtering
+  docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
+
+  log_info "Advanced Docker cleanup completed"
+}
+
+# Monitor Docker volume usage
+monitor_volume_usage() {
+  local volume_data
+  volume_data=$(docker system df --format "{{.TotalCount}},{{.Size}},{{.Reclaimable}}" 2>/dev/null | tail -n +4 | head -n1 || echo "0,0B,0B")
+
+  local volume_size
+  volume_size=$(echo "${volume_data}" | cut -d',' -f2)
+  local reclaimable
+  reclaimable=$(echo "${volume_data}" | cut -d',' -f3)
+
+  log_debug "Docker volumes: Total=${volume_size}, Reclaimable=${reclaimable}"
+
+  # Check if reclaimable space is significant (>5GB)
+  local reclaimable_gb
+  reclaimable_gb=$(echo "${reclaimable}" | sed 's/GB.*//' | sed 's/[^0-9.]//g' 2>/dev/null || echo "0")
+
+  if [[ -n "${reclaimable_gb}" ]] && (($(echo "${reclaimable_gb} > 5" | bc -l 2>/dev/null || echo "0"))); then
+    log_warn "Significant reclaimable Docker volume space detected: ${reclaimable}"
+    return 1
+  fi
+
+  return 0
 }
 
 # Background disk monitoring function with pull synchronization
@@ -347,10 +496,20 @@ monitor_disk_space() {
       # Update disk monitoring state
       echo "${current_time}:${available_gb}:${usage_percent}" >"${TEMP_DIR}/disk_state"
 
-      if [[ ${available_gb} -lt ${MIN_FREE_SPACE_GB} ]]; then
-        log_error "Critical: Low disk space detected: ${available_gb}GB available"
+      # Check volume usage periodically
+      if ! monitor_volume_usage; then
+        log_debug "Volume cleanup recommended due to high usage"
+      fi
+
+      if [[ ${available_gb} -lt ${SPACE_THRESHOLD_GB} ]]; then
+        log_error "Critical: Low disk space detected: ${available_gb}GB available (threshold: ${SPACE_THRESHOLD_GB}GB)"
         echo "CRITICAL_DISK_SPACE" >"${TEMP_DIR}/stop_pulls"
-        cleanup_partial_downloads
+        # Enhanced cleanup including volumes if enabled
+        if [[ "${ADVANCED_CLEANUP_ON_CRITICAL}" == "true" ]]; then
+          advanced_docker_cleanup
+        else
+          cleanup_partial_downloads
+        fi
         # Don't kill immediately, let workers finish current pulls
         break
       elif [[ ${usage_percent} -gt ${CLEANUP_THRESHOLD_PERCENT} ]]; then
@@ -468,6 +627,27 @@ try:
     print(f"export CONFIG_SKIP_AI={str(settings.get('skip_ai', False)).lower()}")
     print(f"export CONFIG_SKIP_WINDOWS={str(settings.get('skip_windows', False)).lower()}")
     
+    # Parse Docker volume management settings
+    docker_vol = config.get('docker_volume_management', {})
+    if docker_vol.get('enabled', True):
+        cache_vol = docker_vol.get('cache_volume', {})
+        state_vol = docker_vol.get('state_volume', {})
+        cleanup = docker_vol.get('cleanup_policies', {})
+        
+        print(f"export CONFIG_VOLUME_ENABLED=true")
+        print(f"export CONFIG_CACHE_VOLUME_NAME={cache_vol.get('name', 'docker-pull-essentials-cache')}")
+        print(f"export CONFIG_STATE_VOLUME_NAME={state_vol.get('name', 'docker-pull-essentials-state')}")
+        print(f"export CONFIG_CACHE_MAX_SIZE_GB={cache_vol.get('max_size_gb', 50)}")
+        print(f"export CONFIG_CACHE_CLEANUP_THRESHOLD={cache_vol.get('cleanup_threshold_percent', 85)}")
+        print(f"export CONFIG_AUTO_CLEANUP_ENABLED={str(cleanup.get('auto_cleanup_enabled', True)).lower()}")
+        
+        # Advanced cleanup settings
+        advanced = cleanup.get('advanced_cleanup', {})
+        print(f"export CONFIG_ADVANCED_CLEANUP_ON_CRITICAL={str(advanced.get('enable_on_critical_space', True)).lower()}")
+        print(f"export CONFIG_SPACE_THRESHOLD_GB={advanced.get('space_threshold_gb', 5)}")
+    else:
+        print(f"export CONFIG_VOLUME_ENABLED=false")
+    
     # Check for environment overrides
     is_wsl = sys.argv[2].lower() == 'true'
     envs = config.get('environments', {})
@@ -543,6 +723,22 @@ process_config_vars() {
       SKIP_AI="${line#CONFIG_SKIP_AI=}"
     elif [[ "${line}" == CONFIG_SKIP_WINDOWS=* ]]; then
       SKIP_WINDOWS="${line#CONFIG_SKIP_WINDOWS=}"
+    elif [[ "${line}" == CONFIG_VOLUME_ENABLED=* ]]; then
+      VOLUME_MANAGEMENT_ENABLED="${line#CONFIG_VOLUME_ENABLED=}"
+    elif [[ "${line}" == CONFIG_CACHE_VOLUME_NAME=* ]]; then
+      DOCKER_PULL_CACHE_VOLUME="${line#CONFIG_CACHE_VOLUME_NAME=}"
+    elif [[ "${line}" == CONFIG_STATE_VOLUME_NAME=* ]]; then
+      DOCKER_PULL_STATE_VOLUME="${line#CONFIG_STATE_VOLUME_NAME=}"
+    elif [[ "${line}" == CONFIG_CACHE_MAX_SIZE_GB=* ]]; then
+      CACHE_MAX_SIZE_GB="${line#CONFIG_CACHE_MAX_SIZE_GB=}"
+    elif [[ "${line}" == CONFIG_CACHE_CLEANUP_THRESHOLD=* ]]; then
+      CACHE_CLEANUP_THRESHOLD="${line#CONFIG_CACHE_CLEANUP_THRESHOLD=}"
+    elif [[ "${line}" == CONFIG_AUTO_CLEANUP_ENABLED=* ]]; then
+      AUTO_CLEANUP_ENABLED="${line#CONFIG_AUTO_CLEANUP_ENABLED=}"
+    elif [[ "${line}" == CONFIG_ADVANCED_CLEANUP_ON_CRITICAL=* ]]; then
+      ADVANCED_CLEANUP_ON_CRITICAL="${line#CONFIG_ADVANCED_CLEANUP_ON_CRITICAL=}"
+    elif [[ "${line}" == CONFIG_SPACE_THRESHOLD_GB=* ]]; then
+      SPACE_THRESHOLD_GB="${line#CONFIG_SPACE_THRESHOLD_GB=}"
     elif [[ "${line}" == CONFIG_IMAGE=* ]]; then
       echo "${line#CONFIG_IMAGE=}" >>"${TEMP_DIR}/config_images"
     fi
@@ -985,6 +1181,49 @@ parse_arguments() {
       RESUME_MODE=true
       shift
       ;;
+    --advanced-cleanup)
+      log_info "Running advanced Docker cleanup with volume management..."
+      advanced_docker_cleanup
+      exit 0
+      ;;
+    --cleanup-volumes)
+      log_info "Running Docker volume cleanup..."
+      cleanup_docker_volumes
+      exit 0
+      ;;
+    --volume-status)
+      log_info "Docker Volume Management Status:"
+      log_info "================================"
+      log_info "Volume Management Enabled: ${VOLUME_MANAGEMENT_ENABLED:-true}"
+      log_info "Cache Volume: ${DOCKER_PULL_CACHE_VOLUME}"
+      log_info "State Volume: ${DOCKER_PULL_STATE_VOLUME}"
+
+      # Show actual volume status
+      if docker volume inspect "${DOCKER_PULL_CACHE_VOLUME}" >/dev/null 2>&1; then
+        log_info "✓ Cache volume exists"
+        cache_usage=$(get_volume_usage "${DOCKER_PULL_CACHE_VOLUME}")
+        log_info "  Usage: ${cache_usage}"
+      else
+        log_info "✗ Cache volume not created yet"
+      fi
+
+      if docker volume inspect "${DOCKER_PULL_STATE_VOLUME}" >/dev/null 2>&1; then
+        log_info "✓ State volume exists"
+        state_usage=$(get_volume_usage "${DOCKER_PULL_STATE_VOLUME}")
+        log_info "  Usage: ${state_usage}"
+      else
+        log_info "✗ State volume not created yet"
+      fi
+
+      # Show configuration
+      log_info ""
+      log_info "Configuration:"
+      log_info "  Max Cache Size: ${CACHE_MAX_SIZE_GB:-50}GB"
+      log_info "  Cleanup Threshold: ${CACHE_CLEANUP_THRESHOLD:-85}%"
+      log_info "  Auto Cleanup: ${AUTO_CLEANUP_ENABLED:-true}"
+      log_info "  Space Threshold: ${SPACE_THRESHOLD_GB:-5}GB"
+      exit 0
+      ;;
     --help)
       show_help
       exit 0
@@ -1015,6 +1254,9 @@ Options:
   --skip-windows    Skip Windows-specific images
   --log-file FILE   Log output to file (default: ${DEFAULT_LOG_FILE})
   --resume          Resume from a previous interrupted operation
+  --advanced-cleanup  Run advanced Docker cleanup with volume management
+  --cleanup-volumes   Run Docker volume cleanup
+  --volume-status     Show Docker volume management status and configuration
   --help            Show this help message
 EOF
 }
@@ -1040,6 +1282,13 @@ generate_report() {
   log_info "Failed pulls: ${failed_pulls}"
   log_info "Duration: ${duration_minutes}m ${duration_seconds}s"
 
+  # Show Docker volume usage
+  local cache_usage
+  cache_usage=$(get_volume_usage "${DOCKER_PULL_CACHE_VOLUME}")
+  local state_usage
+  state_usage=$(get_volume_usage "${DOCKER_PULL_STATE_VOLUME}")
+  log_info "Docker volumes: Cache=${cache_usage}, State=${state_usage}"
+
   if [[ ${failed_pulls} -gt 0 ]]; then
     log_error "Failed images:"
     for image in "${FAILED_IMAGES[@]}"; do
@@ -1060,12 +1309,17 @@ main() {
 
   log_info "Docker Pull Essentials v${SCRIPT_VERSION}"
   log_info "Starting with configuration: parallel=${PARALLEL}, retries=${RETRIES}, timeout=${TIMEOUT}"
+  log_debug "Volume management: enabled=${VOLUME_MANAGEMENT_ENABLED}, cache_volume=${DOCKER_PULL_CACHE_VOLUME}"
+  log_debug "Cleanup settings: auto=${AUTO_CLEANUP_ENABLED}, threshold=${SPACE_THRESHOLD_GB}GB"
 
   # Parse command line arguments
   parse_arguments "$@"
 
   # Check prerequisites
   check_prerequisites
+
+  # Set up Docker volumes for caching and state management
+  setup_docker_volumes
 
   # Initialize progress tracking
   echo "${START_TIME}" >"${PROGRESS_STATE}"
