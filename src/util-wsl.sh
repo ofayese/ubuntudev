@@ -164,6 +164,7 @@ setup_wsl_dns() {
   fi
 
   # Remove immutable attribute if set
+  # Make resolv.conf writable, but don't fail if chattr isn't supported
   sudo chattr -i /etc/resolv.conf 2>/dev/null || true
 
   # Create our custom resolv.conf
@@ -179,6 +180,7 @@ EOF
   sudo chattr +i /etc/resolv.conf 2>/dev/null || {
     log_warning "Cannot set immutable attribute on /etc/resolv.conf (chattr not supported)"
     log_info "DNS configuration applied but may be overwritten by WSL"
+    # Don't fail the entire script for this
   }
 
   log_success "Custom DNS resolvers configured (Cloudflare, Google, Quad9)"
