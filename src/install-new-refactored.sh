@@ -110,7 +110,7 @@ USAGE:
   ./install-new.sh [OPTIONS] [COMPONENTS]
 
 OPTIONS:
-  --all                Install all available components
+  --all                Install all available components (except update-env and validate)
   --resume             Resume from previous failed installation
   --graph              Generate dependency graph and exit
   --validate           Run validation checks and exit
@@ -130,7 +130,7 @@ COMPONENTS:
   --update-env         Environment updates and optimizations
 
 EXAMPLES:
-  ./install-new.sh --all                    # Install everything
+  ./install-new.sh --all                    # Install everything (except update-env and validate)
   ./install-new.sh --devtools --terminal    # Install dev tools and modern CLI
   ./install-new.sh --validate               # Just run validation
   ./install-new.sh --graph                  # Show dependency graph
@@ -300,10 +300,15 @@ determine_components_to_install() {
     local components_to_install=()
 
     if [[ "$INSTALL_ALL" == "true" ]]; then
-        log_info "Installing all available components"
+        log_info "Installing all available components (except update-env and validate)"
         # Get all components from loaded dependencies
         if [[ ${#COMPONENTS[@]} -gt 0 ]]; then
-            components_to_install=("${COMPONENTS[@]}")
+            # Copy all components except update-env and validate
+            for comp in "${COMPONENTS[@]}"; do
+                if [[ "$comp" != "update-env" && "$comp" != "validate" ]]; then
+                    components_to_install+=("$comp")
+                fi
+            done
         else
             log_error "No components found in dependencies"
             exit $EXIT_DEPENDENCY_ERROR
