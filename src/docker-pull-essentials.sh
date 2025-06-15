@@ -1409,56 +1409,71 @@ main() {
 
   # Validate images before pulling (unless in dry-run mode)
   if [[ "${DRY_RUN}" != "true" ]]; then
-    validate_all_images
+    # Skip validation by default for faster startup - can be enabled with ENABLE_VALIDATION=true
+    if [[ "${ENABLE_VALIDATION:-false}" == "true" ]]; then
+      validate_all_images
+    else
+      log_info "Skipping image validation for faster startup (set ENABLE_VALIDATION=true to enable)"
+    fi
   fi
 
   log_info "Starting pull process with ${PARALLEL} workers"
+  log_debug "Total images to process: ${TOTAL_IMAGES}"
   echo
 
-  # Initialize state tracking files
-  true >"${COMPLETED_FILE}"
-  true >"${FAILED_FILE}"
-  true >"${RESULTS_FILE}"
-  true >"${ERROR_CLASSIFICATION}"
-  true >"${TEMP_DIR}/failed_images_list"
+  # For dry-run mode, just show what would be pulled and exit
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    log_info "DRY-RUN MODE: Would pull the following images:"
+    local count=0
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      local image
+      image=$(get_image_name "${line}")
+      local display_name
+      display_name=$(get_display_name "${line}" "true")
+      ((count++))
+      log_info "  $count. ${display_name} (${image})"
+    done <"${PULL_QUEUE}"
+    log_info "DRY-RUN: Would process ${count} images"
+    return 0
+  fi
 
-  # Start workers in background
-  local worker_pids=()
-  for ((i = 0; i < PARALLEL; i++)); do
-    pull_worker "$i" "${PULL_QUEUE}" "${RESULTS_FILE}" &
-    worker_pids+=($!)
-  done
+  # Simplified pull process for better reliability
+  log_info "Processing ${TOTAL_IMAGES} images sequentially..."
+  local success_count=0
+  local fail_count=0
+  local current=0
 
-  # Monitor progress
-  local completed=0
-  local total_bytes=0
-  local downloaded_bytes=0
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
 
-  while [[ ${completed} -lt ${TOTAL_IMAGES} ]]; do
-    sleep 2
+    ((current++))
+    local image
+    image=$(get_image_name "${line}")
+    local display_name
+    display_name=$(get_display_name "${line}" "true")
 
-    # Check for stop signals
-    if [[ -f "${TEMP_DIR}/stop_pulls" ]]; then
-      log_warn "Stopping all workers due to critical condition"
-      for pid in "${worker_pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
-      done
-      break
+    printf "\r[%d/%d] Pulling %s..." "$current" "$TOTAL_IMAGES" "$display_name"
+
+    if pull_image "${line}"; then
+      ((success_count++))
+      echo "SUCCESS:${image}" >>"${RESULTS_FILE}"
+      echo "${image}" >>"${COMPLETED_FILE}"
+    else
+      ((fail_count++))
+      echo "FAILED:${image}" >>"${RESULTS_FILE}"
+      echo "${image}" >>"${FAILED_FILE}"
+      echo "${image}" >>"${TEMP_DIR}/failed_images_list"
     fi
 
-    local successful
-    successful=$(get_successful_count)
-    local failed
-    failed=$(get_failed_count)
-    completed=$((successful + failed))
+    # Update counters for reporting
+    echo "$success_count" >"${SUCCESSFUL_COUNTER}"
+    echo "$fail_count" >"${FAILED_COUNTER}"
 
-    show_progress "${completed}" "${TOTAL_IMAGES}" "${downloaded_bytes}" "${total_bytes}"
-  done
+  done <"${PULL_QUEUE}"
 
-  # Wait for all workers to exit gracefully
-  for pid in "${worker_pids[@]}"; do
-    wait "$pid" 2>/dev/null || true
-  done
+  echo # New line after progress
+  log_info "Pull process completed"
 
   # Stop disk monitoring
   rm -f "${TEMP_DIR}/disk_monitoring_active" 2>/dev/null || true
