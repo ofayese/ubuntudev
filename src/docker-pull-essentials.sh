@@ -8,7 +8,7 @@
 #   ./docker-pull-essentials.sh [OPTIONS]
 #
 # Options:
-#   --config FILE     Specify configuration file (default: docker-pull-config.yaml)
+#   --config FILE     Specify configuration file (default: ./src/docker-pull-config.yaml)
 #   --dry-run         Show what would be pulled without actually pulling
 #   --parallel NUM    Number of parallel pulls (default: 4)
 #   --retry NUM       Number of retry attempts per image (default: 2)
@@ -30,8 +30,12 @@ readonly SCRIPT_NAME
 readonly SCRIPT_VERSION="2.0.0"
 readonly LOG_PREFIX="[${SCRIPT_NAME}]"
 
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+
 # Default configuration
-readonly DEFAULT_CONFIG_FILE="docker-pull-config.yaml"
+readonly DEFAULT_CONFIG_FILE="${SCRIPT_DIR}/docker-pull-config.yaml"
 readonly DEFAULT_TIMEOUT=300
 readonly DEFAULT_RETRIES=2
 readonly DEFAULT_PARALLEL=4
@@ -589,6 +593,20 @@ parse_yaml_config_yq() {
     echo "export SKIP_AI=$(yq eval '.settings.skip_ai // false' "${config_file}")"
     echo "export SKIP_WINDOWS=$(yq eval '.settings.skip_windows // false' "${config_file}")"
 
+    # Docker volume management settings
+    if yq eval '.docker_volume_management.enabled // true' "${config_file}" | grep -q true; then
+      echo "export VOLUME_MANAGEMENT_ENABLED=true"
+      echo "export DOCKER_PULL_CACHE_VOLUME=$(yq eval '.docker_volume_management.cache_volume.name // "docker-pull-essentials-cache"' "${config_file}")"
+      echo "export DOCKER_PULL_STATE_VOLUME=$(yq eval '.docker_volume_management.state_volume.name // "docker-pull-essentials-state"' "${config_file}")"
+      echo "export CACHE_MAX_SIZE_GB=$(yq eval '.docker_volume_management.cache_volume.max_size_gb // 50' "${config_file}")"
+      echo "export CACHE_CLEANUP_THRESHOLD=$(yq eval '.docker_volume_management.cache_volume.cleanup_threshold_percent // 85' "${config_file}")"
+      echo "export AUTO_CLEANUP_ENABLED=$(yq eval '.docker_volume_management.cleanup_policies.auto_cleanup_enabled // true' "${config_file}")"
+      echo "export ADVANCED_CLEANUP_ON_CRITICAL=$(yq eval '.docker_volume_management.cleanup_policies.advanced_cleanup.enable_on_critical_space // true' "${config_file}")"
+      echo "export SPACE_THRESHOLD_GB=$(yq eval '.docker_volume_management.cleanup_policies.advanced_cleanup.space_threshold_gb // 5' "${config_file}")"
+    else
+      echo "export VOLUME_MANAGEMENT_ENABLED=false"
+    fi
+
     # Check for environment-specific overrides
     if [[ "${WSL_ENV}" == "true" ]] && yq eval '.environments.wsl2 | length > 0' "${config_file}" >/dev/null 2>&1; then
       echo "# WSL2-specific overrides"
@@ -600,6 +618,28 @@ parse_yaml_config_yq() {
     fi
   } >"${cache_file}"
 
+  # Extract images to separate file
+  mkdir -p "${TEMP_DIR}"
+  {
+    # Get enabled categories and their images
+    yq eval '.categories | to_entries | .[] | select(.value.enabled // true) | .value.images[]' "${config_file}" |
+      while IFS= read -r line; do
+        if [[ "${line}" =~ ^-\ name:\ (.+)$ ]]; then
+          # Extract image details using yq for each image
+          img_name=$(echo "${line}" | sed 's/^- name: //')
+          # This is a simplified extraction - yq with complex nested structures is tricky
+          echo "IMAGE:${img_name}:latest::::"
+        fi
+      done
+  } >"${TEMP_DIR}/config_images" 2>/dev/null || {
+    # Fallback: try to extract images with a simpler pattern
+    yq eval '.categories[].images[].name' "${config_file}" 2>/dev/null |
+      while IFS= read -r img_name; do
+        [[ -n "${img_name}" ]] && echo "IMAGE:${img_name}:latest::::"
+      done >"${TEMP_DIR}/config_images"
+  }
+
+  log_debug "Extracted $(wc -l <"${TEMP_DIR}/config_images" 2>/dev/null || echo 0) images using yq"
   return 0
 }
 
@@ -690,16 +730,39 @@ EOF
   )
 
   # Run Python script to parse YAML and write to cache file
+  local temp_output
+  temp_output=$(mktemp)
+
+  if ! python3 -c "${py_script}" "${config_file}" "${WSL_ENV}" >"${temp_output}" 2>&1; then
+    log_error "Failed to parse configuration file with Python"
+    rm -f "${temp_output}"
+    return 1
+  fi
+
+  # Process the output and separate config vars from image lines
   {
     echo "# Cached configuration from ${config_file}"
     echo "# Generated on $(date)"
     echo ""
-    if ! python3 -c "${py_script}" "${config_file}" "${WSL_ENV}"; then
-      log_error "Failed to parse configuration file with Python"
-      return 1
-    fi
+
+    # Filter out CONFIG_IMAGE lines and write export statements
+    grep -v '^CONFIG_IMAGE=' "${temp_output}" || true
   } >"${cache_file}"
 
+  # Process CONFIG_IMAGE lines separately and write to config_images file
+  if grep -q '^CONFIG_IMAGE=' "${temp_output}"; then
+    # Ensure the config_images file exists and is writable
+    mkdir -p "${TEMP_DIR}"
+    grep '^CONFIG_IMAGE=' "${temp_output}" | sed 's/^CONFIG_IMAGE=//' >"${TEMP_DIR}/config_images"
+    log_debug "Wrote $(wc -l <"${TEMP_DIR}/config_images") image definitions to config_images"
+  else
+    log_warn "No CONFIG_IMAGE lines found in Python output"
+    # Create empty file so the check later doesn't fail
+    mkdir -p "${TEMP_DIR}"
+    touch "${TEMP_DIR}/config_images"
+  fi
+
+  rm -f "${temp_output}"
   return 0
 }
 
@@ -1146,7 +1209,20 @@ parse_arguments() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
     --config)
-      CONFIG_FILE="$2"
+      # Handle relative paths by checking if file exists relative to script dir
+      if [[ "$2" = /* ]]; then
+        # Absolute path - use as is
+        CONFIG_FILE="$2"
+      elif [[ -f "$2" ]]; then
+        # Relative path exists in current directory
+        CONFIG_FILE="$2"
+      elif [[ -f "${SCRIPT_DIR}/$2" ]]; then
+        # Relative path exists in script directory
+        CONFIG_FILE="${SCRIPT_DIR}/$2"
+      else
+        # Use as provided (will fail later with proper error)
+        CONFIG_FILE="$2"
+      fi
       shift 2
       ;;
     --dry-run)
@@ -1245,7 +1321,7 @@ Usage: ${SCRIPT_NAME} [OPTIONS]
 Pull essential Docker images for development and AI/ML workloads.
 
 Options:
-  --config FILE     Specify configuration file (default: ${DEFAULT_CONFIG_FILE})
+  --config FILE     Specify configuration file (default: ${SCRIPT_DIR}/docker-pull-config.yaml)
   --dry-run         Show what would be pulled without actually pulling
   --parallel NUM    Number of parallel pulls (default: ${DEFAULT_PARALLEL})
   --retry NUM       Number of retry attempts per image (default: ${DEFAULT_RETRIES})
