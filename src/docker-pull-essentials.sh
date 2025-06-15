@@ -55,9 +55,15 @@ ALLOWED_REGISTRIES="${DOCKER_ALLOWED_REGISTRIES:-}"
 
 # Counters for reporting (use file-based counters for thread safety)
 declare -i TOTAL_IMAGES=0
+declare -a FAILED_IMAGES=()
+
+# Create temporary directory first
+TEMP_DIR="$(mktemp -d)"
+readonly TEMP_DIR
+
+# Now define counters using the temp directory
 readonly SUCCESSFUL_COUNTER="${TEMP_DIR}/successful_count"
 readonly FAILED_COUNTER="${TEMP_DIR}/failed_count"
-declare -a FAILED_IMAGES=()
 
 # Initialize counters
 echo "0" >"${SUCCESSFUL_COUNTER}"
@@ -91,8 +97,6 @@ get_failed_count() {
 }
 
 # Temporary files for parallel processing
-TEMP_DIR="$(mktemp -d)"
-readonly TEMP_DIR
 readonly PULL_QUEUE="${TEMP_DIR}/pull_queue"
 readonly RESULTS_FILE="${TEMP_DIR}/results"
 # shellcheck disable=SC2034  # Reserved for future state tracking
@@ -388,21 +392,22 @@ load_configuration() {
 
   log_info "Loading configuration from: ${config_file}"
 
-  # Check if yq is available for YAML parsing
-  if command -v yq >/dev/null 2>&1; then
-    if parse_yaml_config_yq "${config_file}" "${cached_config}"; then
-      # shellcheck disable=SC1090  # Dynamic config file sourcing
-      source "${cached_config}"
-      return 0
-    fi
-  elif command -v python3 >/dev/null 2>&1; then
+  # Prefer Python for YAML parsing as it's more reliable across systems
+  if command -v python3 >/dev/null 2>&1; then
     if parse_yaml_config_python "${config_file}" "${cached_config}"; then
       # shellcheck disable=SC1090  # Dynamic config file sourcing
       source "${cached_config}"
       return 0
     fi
+  # Fallback to yq if available (check for modern yq v4+ syntax support)
+  elif command -v yq >/dev/null 2>&1 && yq eval --version >/dev/null 2>&1; then
+    if parse_yaml_config_yq "${config_file}" "${cached_config}"; then
+      # shellcheck disable=SC1090  # Dynamic config file sourcing
+      source "${cached_config}"
+      return 0
+    fi
   else
-    log_error "No YAML parser available (yq or python3)"
+    log_error "No YAML parser available (python3 preferred, or yq v4+)"
     return 1
   fi
 }
@@ -442,6 +447,7 @@ parse_yaml_config_yq() {
 # Parse YAML with Python
 parse_yaml_config_python() {
   local config_file="$1"
+  local cache_file="$2"
 
   # Python script to parse YAML
   local py_script
@@ -456,11 +462,11 @@ try:
     
     # Output key settings as env vars
     settings = config.get('settings', {})
-    print(f"CONFIG_TIMEOUT={settings.get('timeout', 300)}")
-    print(f"CONFIG_RETRIES={settings.get('retries', 2)}")
-    print(f"CONFIG_PARALLEL={settings.get('parallel', 4)}")
-    print(f"CONFIG_SKIP_AI={str(settings.get('skip_ai', False)).lower()}")
-    print(f"CONFIG_SKIP_WINDOWS={str(settings.get('skip_windows', False)).lower()}")
+    print(f"export CONFIG_TIMEOUT={settings.get('timeout', 300)}")
+    print(f"export CONFIG_RETRIES={settings.get('retries', 2)}")
+    print(f"export CONFIG_PARALLEL={settings.get('parallel', 4)}")
+    print(f"export CONFIG_SKIP_AI={str(settings.get('skip_ai', False)).lower()}")
+    print(f"export CONFIG_SKIP_WINDOWS={str(settings.get('skip_windows', False)).lower()}")
     
     # Check for environment overrides
     is_wsl = sys.argv[2].lower() == 'true'
@@ -469,13 +475,13 @@ try:
     if is_wsl and 'wsl2' in envs:
         wsl_config = envs['wsl2']
         if 'parallel' in wsl_config:
-            print(f"CONFIG_PARALLEL={wsl_config['parallel']}")
+            print(f"export CONFIG_PARALLEL={wsl_config['parallel']}")
         if 'skip_windows' in wsl_config:
-            print(f"CONFIG_SKIP_WINDOWS={str(wsl_config['skip_windows']).lower()}")
+            print(f"export CONFIG_SKIP_WINDOWS={str(wsl_config['skip_windows']).lower()}")
     elif not is_wsl and 'native_linux' in envs:
         linux_config = envs['native_linux']
         if 'parallel' in linux_config:
-            print(f"CONFIG_PARALLEL={linux_config['parallel']}")
+            print(f"export CONFIG_PARALLEL={linux_config['parallel']}")
     
     # Output categories info for building image list
     categories = config.get('categories', {})
@@ -503,15 +509,27 @@ except Exception as e:
 EOF
   )
 
-  # Run Python script to parse YAML
-  local config_vars
-  if ! config_vars=$(python3 -c "${py_script}" "${config_file}" "${WSL_ENV}"); then
-    log_error "Failed to parse configuration file with Python"
-    return 1
-  fi
+  # Run Python script to parse YAML and write to cache file
+  {
+    echo "# Cached configuration from ${config_file}"
+    echo "# Generated on $(date)"
+    echo ""
+    if ! python3 -c "${py_script}" "${config_file}" "${WSL_ENV}"; then
+      log_error "Failed to parse configuration file with Python"
+      return 1
+    fi
+  } >"${cache_file}"
 
-  # Apply configuration
+  return 0
+}
+
+# Process configuration variables from parsed YAML
+process_config_vars() {
+  local config_vars="$1"
+
   while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+
     if [[ "${line}" == CONFIG_ERROR=* ]]; then
       log_error "Error parsing configuration: ${line#CONFIG_ERROR=}"
       return 1
@@ -1009,14 +1027,20 @@ generate_report() {
   local duration_minutes=$((duration / 60))
   local duration_seconds=$((duration % 60))
 
+  # Get final counts from counter files
+  local successful_pulls
+  local failed_pulls
+  successful_pulls="$(get_successful_count)"
+  failed_pulls="$(get_failed_count)"
+
   echo
   log_info "===== DOCKER PULL SUMMARY ====="
   log_info "Total images: ${TOTAL_IMAGES}"
-  log_info "Successful pulls: ${SUCCESSFUL_PULLS}"
-  log_info "Failed pulls: ${FAILED_PULLS}"
+  log_info "Successful pulls: ${successful_pulls}"
+  log_info "Failed pulls: ${failed_pulls}"
   log_info "Duration: ${duration_minutes}m ${duration_seconds}s"
 
-  if [[ ${FAILED_PULLS} -gt 0 ]]; then
+  if [[ ${failed_pulls} -gt 0 ]]; then
     log_error "Failed images:"
     for image in "${FAILED_IMAGES[@]}"; do
       log_error "  - ${image}"
