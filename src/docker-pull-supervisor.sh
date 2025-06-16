@@ -14,7 +14,6 @@ set -euo pipefail
 # Default Parameters
 RETRIES=2
 TIMEOUT=300
-WORKERS=4
 MIN_FREE_DISK_GB=20
 LOG_FILE="docker-pull-supervisor.log"
 # shellcheck disable=SC2034
@@ -34,10 +33,6 @@ while [[ $# -gt 0 ]]; do
         ;;
     --timeout)
         TIMEOUT="$2"
-        shift 2
-        ;;
-    --workers)
-        WORKERS="$2"
         shift 2
         ;;
     --skip-ai)
@@ -65,7 +60,8 @@ while [[ $# -gt 0 ]]; do
         shift 2
         ;;
     --help | -h)
-        echo "Usage: $0 [--retry N] [--timeout SEC] [--workers N] [--dry-run] [--debug] [--skip-ai] [--skip-windows] [--resume]"
+        echo "Usage: $0 [--retry N] [--timeout SEC] [--dry-run] [--debug] [--skip-ai] [--skip-windows] [--resume]"
+        echo "Note: Sequential processing (workers removed for simplicity)"
         exit 0
         ;;
     *)
@@ -75,10 +71,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# WSL2 detection
+# WSL2 detection (info only now)
 if grep -qEi "(Microsoft|WSL)" /proc/version &>/dev/null; then
-    echo "Detected WSL2 — auto-tuning workers to 2"
-    WORKERS=2
+    echo "Detected WSL2 environment"
 fi
 
 # Disk space check
@@ -177,13 +172,9 @@ IMAGES=(
 
 # Signal Handling for Graceful Cleanup
 cleanup() {
-    echo -e "\n🛑 Interrupted - cleaning up workers..."
-    # Kill all background jobs (workers)
-    jobs -p | xargs -r kill 2>/dev/null || true
-    # Remove lock files and state directory if they exist
-    rm -f .docker-pull-state/lock .docker-pull-state/progress.lock
-    # Optional: remove queue and progress files on interrupt
-    # rm -f .docker-pull-state/queue.txt .docker-pull-state/progress.txt
+    echo -e "\n🛑 Interrupted - cleaning up..."
+    # Remove queue file on interrupt if desired
+    # rm -f .docker-pull-state/queue.txt
     echo "Cleanup completed."
     exit 130
 }
@@ -192,7 +183,6 @@ trap cleanup SIGINT SIGTERM
 # Prepare working state
 mkdir -p .docker-pull-state
 QUEUE_FILE=".docker-pull-state/queue.txt"
-PROGRESS_FILE=".docker-pull-state/progress.txt"
 
 # Build queue on first run or reuse existing queue for --resume
 if [[ -f "$QUEUE_FILE" && "${RESUME:-false}" == "true" ]]; then
@@ -211,9 +201,6 @@ fi
 # Total images to pull
 TOTAL=$(wc -l <"$QUEUE_FILE")
 echo "Total images to pull: $TOTAL"
-
-# Initialize progress file
-echo "0" >"$PROGRESS_FILE"
 
 # Function: Pull single image
 pull_image() {
@@ -238,81 +225,31 @@ pull_image() {
     return 1
 }
 
-# Function: Worker thread
-worker() {
-    local worker_id="$$"
-    [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Worker $worker_id started" >&2
+# Start pulling images sequentially (simplified - no workers)
+echo "Starting sequential image pulls..."
 
-    while true; do
-        {
-            flock -x 200
-            line=$(sed -n '1p' "$QUEUE_FILE")
-            sed -i '1d' "$QUEUE_FILE"
-        } 200>.docker-pull-state/lock
+current=0
+while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+        ((current++))
+        percent=$((current * 100 / TOTAL))
 
-        [[ -z "$line" ]] && {
-            [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Worker $worker_id: queue empty, exiting" >&2
-            break
-        }
+        printf "\rProgress: %3d%% (%d / %d) - Processing: %s" "$percent" "$current" "$TOTAL" "$(echo "$line" | cut -d: -f4)"
 
-        [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Worker $worker_id processing: $line" >&2
-
-        pull_image "$line" && {
-            flock -x 201
-            done_so_far=$(cat "$PROGRESS_FILE")
-            echo $((done_so_far + 1)) >"$PROGRESS_FILE"
-        } 201>.docker-pull-state/progress.lock
-    done
-
-    [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Worker $worker_id finished" >&2
-}
-# Start parallel workers
-echo "Starting $WORKERS parallel workers..."
-
-for ((i = 0; i < WORKERS; i++)); do
-    worker &
-done
-
-# Monitor progress
-timeout_counter=0
-max_timeout_cycles=150 # 150 * 2 seconds = 5 minutes max wait
-
-while true; do
-    sleep 2
-    ((timeout_counter++))
-
-    # Read progress safely
-    {
-        flock -x 201
-        done=$(cat "$PROGRESS_FILE")
-    } 201>.docker-pull-state/progress.lock
-
-    percent=$((done * 100 / TOTAL))
-
-    printf "\rProgress: %3d%% (%d / %d remaining)" "$percent" "$done" "$TOTAL"
-
-    # Break conditions
-    [[ "$done" -ge "$TOTAL" ]] && break
-
-    # Timeout protection - check if workers are still alive
-    if ((timeout_counter >= max_timeout_cycles)); then
-        echo -e "\n⚠️  Timeout reached - checking worker status..."
-        if ! jobs %1 &>/dev/null; then
-            echo "❌ Workers appear to have died - exiting"
-            break
+        if pull_image "$line"; then
+            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Successfully pulled: $line" >&2
+        else
+            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Failed to pull: $line" >&2
         fi
-        timeout_counter=0 # Reset counter if workers are still alive
     fi
-done
-
-wait
+done <"$QUEUE_FILE"
 
 echo ""
 echo "✅ All pull operations finished"
-# Final cleanup & reporting
 
-# Remove lock/state files when successful
-rm -f "$QUEUE_FILE" "$PROGRESS_FILE" .docker-pull-state/lock .docker-pull-state/progress.lock
+# Final cleanup & reporting
+# Remove queue file when successful
+rm -f "$QUEUE_FILE"
 
 echo "Log file: $LOG_FILE"
 
