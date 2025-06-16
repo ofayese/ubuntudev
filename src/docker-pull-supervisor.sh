@@ -21,7 +21,6 @@ STATE_FILE="docker-pull-state.txt"
 DRY_RUN=false
 SKIP_AI=false
 SKIP_WINDOWS=false
-RESUME=false
 DEBUG=false
 
 # Parse CLI args
@@ -51,17 +50,13 @@ while [[ $# -gt 0 ]]; do
         DEBUG=true
         shift
         ;;
-    --resume)
-        RESUME=true
-        shift
-        ;;
     --log-file)
         LOG_FILE="$2"
         shift 2
         ;;
     --help | -h)
-        echo "Usage: $0 [--retry N] [--timeout SEC] [--dry-run] [--debug] [--skip-ai] [--skip-windows] [--resume]"
-        echo "Note: Sequential processing (workers removed for simplicity)"
+        echo "Usage: $0 [--retry N] [--timeout SEC] [--dry-run] [--debug] [--skip-ai] [--skip-windows]"
+        echo "Note: Sequential processing (simplified, no queue files)"
         exit 0
         ;;
     *)
@@ -173,33 +168,22 @@ IMAGES=(
 # Signal Handling for Graceful Cleanup
 cleanup() {
     echo -e "\n🛑 Interrupted - cleaning up..."
-    # Remove queue file on interrupt if desired
-    # rm -f .docker-pull-state/queue.txt
     echo "Cleanup completed."
     exit 130
 }
 trap cleanup SIGINT SIGTERM
 
-# Prepare working state
-mkdir -p .docker-pull-state
-QUEUE_FILE=".docker-pull-state/queue.txt"
-
-# Build queue on first run or reuse existing queue for --resume
-if [[ -f "$QUEUE_FILE" && "${RESUME:-false}" == "true" ]]; then
-    echo "Resuming from previous queue file: $QUEUE_FILE"
-else
-    echo "Building new queue..."
-    true >"$QUEUE_FILE"
-    for entry in "${IMAGES[@]}"; do
-        IFS=':' read -r type repo tag friendly <<<"$entry"
-        [[ "$SKIP_AI" == "true" && "$type" == "MODEL" ]] && continue
-        [[ "$SKIP_WINDOWS" == "true" && "$repo" == mcr.microsoft.com/windows/* ]] && continue
-        echo "${type}:${repo}:${tag}:${friendly}" >>"$QUEUE_FILE"
-    done
-fi
+# Build filtered images array
+FILTERED_IMAGES=()
+for entry in "${IMAGES[@]}"; do
+    IFS=':' read -r type repo tag friendly <<<"$entry"
+    [[ "$SKIP_AI" == "true" && "$type" == "MODEL" ]] && continue
+    [[ "$SKIP_WINDOWS" == "true" && "$repo" == mcr.microsoft.com/windows/* ]] && continue
+    FILTERED_IMAGES+=("$entry")
+done
 
 # Total images to pull
-TOTAL=$(wc -l <"$QUEUE_FILE")
+TOTAL=${#FILTERED_IMAGES[@]}
 echo "Total images to pull: $TOTAL"
 
 # Function: Pull single image
@@ -225,32 +209,33 @@ pull_image() {
     return 1
 }
 
-# Start pulling images sequentially (simplified - no workers)
+# Start pulling images sequentially (simplified - no queue file)
 echo "Starting sequential image pulls..."
 
 current=0
-while IFS= read -r line; do
-    if [[ -n "$line" ]]; then
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] Total images: $TOTAL" >&2
+
+for entry in "${FILTERED_IMAGES[@]}"; do
+    [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Processing entry: '$entry'" >&2
+
+    if [[ -n "$entry" ]]; then
         ((current++))
         percent=$((current * 100 / TOTAL))
 
-        printf "\rProgress: %3d%% (%d / %d) - Processing: %s" "$percent" "$current" "$TOTAL" "$(echo "$line" | cut -d: -f4)"
+        printf "\rProgress: %3d%% (%d / %d) - Processing: %s" "$percent" "$current" "$TOTAL" "$(echo "$entry" | cut -d: -f4)"
 
-        if pull_image "$line"; then
-            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Successfully pulled: $line" >&2
+        if pull_image "$entry"; then
+            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Successfully pulled: $entry" >&2
         else
-            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Failed to pull: $line" >&2
+            [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Failed to pull: $entry" >&2
         fi
     fi
-done <"$QUEUE_FILE"
+done
 
 echo ""
 echo "✅ All pull operations finished"
 
-# Final cleanup & reporting
-# Remove queue file when successful
-rm -f "$QUEUE_FILE"
-
+# Final reporting
 echo "Log file: $LOG_FILE"
 
 # Summary
