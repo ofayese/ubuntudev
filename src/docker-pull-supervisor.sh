@@ -17,6 +17,7 @@ TIMEOUT=300
 WORKERS=4
 MIN_FREE_DISK_GB=20
 LOG_FILE="docker-pull-supervisor.log"
+# shellcheck disable=SC2034
 STATE_FILE="docker-pull-state.txt"
 DRY_RUN=false
 SKIP_AI=false
