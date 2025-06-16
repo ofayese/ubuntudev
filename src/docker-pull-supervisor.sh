@@ -78,13 +78,15 @@ if ((AVAILABLE_DISK < MIN_FREE_DISK_GB)); then
     exit 1
 fi
 
-# Optional volume cleanup (can be commented out if you want)
-echo "Docker volume usage before pull:"
-docker system df -v
-echo "Pruning dangling volumes..."
-docker volume prune -f || true
-echo "Docker volume usage after prune:"
-docker system df -v
+# Optional volume cleanup (commented out to avoid hanging - uncomment if needed)
+# echo "Docker volume usage before pull:"
+# docker system df -v
+# echo "Pruning dangling volumes..."
+# docker volume prune -f || true
+# echo "Docker volume usage after prune:"
+# docker system df -v
+
+echo "Skipping volume cleanup to avoid potential hangs..."
 # Image definitions
 IMAGES=(
     # base_os
@@ -186,6 +188,11 @@ done
 TOTAL=${#FILTERED_IMAGES[@]}
 echo "Total images to pull: $TOTAL"
 
+# Debug: Show first few entries
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] FILTERED_IMAGES array has ${#FILTERED_IMAGES[@]} entries" >&2
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] First 3 entries:" >&2
+[[ "$DEBUG" == "true" ]] && for i in {0..2}; do [[ $i -lt ${#FILTERED_IMAGES[@]} ]] && echo "[DEBUG]   [$i]: ${FILTERED_IMAGES[$i]}" >&2; done
+
 # Function: Pull single image
 pull_image() {
     local entry="$1"
@@ -214,23 +221,40 @@ echo "Starting sequential image pulls..."
 
 current=0
 [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Total images: $TOTAL" >&2
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] Starting for loop over FILTERED_IMAGES" >&2
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] Initial current value: $current" >&2
 
 for entry in "${FILTERED_IMAGES[@]}"; do
     [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Processing entry: '$entry'" >&2
 
     if [[ -n "$entry" ]]; then
-        ((current++))
-        percent=$((current * 100 / TOTAL))
+        [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Entry is not empty, current before increment: $current" >&2
+        current=$((current + 1))
+        [[ "$DEBUG" == "true" ]] && echo "[DEBUG] current after increment: $current, TOTAL=$TOTAL" >&2
 
-        printf "\rProgress: %3d%% (%d / %d) - Processing: %s" "$percent" "$current" "$TOTAL" "$(echo "$entry" | cut -d: -f4)"
+        if [[ $TOTAL -gt 0 ]]; then
+            percent=$((current * 100 / TOTAL))
+            [[ "$DEBUG" == "true" ]] && echo "[DEBUG] percent=$percent" >&2
+        else
+            percent=0
+            [[ "$DEBUG" == "true" ]] && echo "[DEBUG] TOTAL is 0, setting percent to 0" >&2
+        fi
+
+        echo "Progress: ${percent}% (${current} / ${TOTAL})"
+
+        [[ "$DEBUG" == "true" ]] && echo "[DEBUG] About to call pull_image for: $entry" >&2
 
         if pull_image "$entry"; then
             [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Successfully pulled: $entry" >&2
         else
             [[ "$DEBUG" == "true" ]] && echo -e "\n[DEBUG] Failed to pull: $entry" >&2
         fi
+
+        [[ "$DEBUG" == "true" ]] && echo "[DEBUG] Completed processing entry $current" >&2
     fi
 done
+
+[[ "$DEBUG" == "true" ]] && echo "[DEBUG] Finished for loop" >&2
 
 echo ""
 echo "✅ All pull operations finished"
